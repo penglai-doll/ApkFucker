@@ -1,0 +1,107 @@
+---
+name: android-malware-analysis
+description: Static investigation of suspicious Android APK/APKS/XAPK/ZIP packages and unpacked decompilation directories. Use only when Codex is analyzing suspicious Android packages or decoded APK artifacts, not for general Android app development or SDK usage questions; inspect APK, APKS, XAPK, ZIP, DEX, native libraries, JADX/apktool output, or unpacked Android app content; follow a fixed staged workflow with tool reuse and branch pruning; generate Simplified Chinese Markdown and DOCX malware reports; extract callback infrastructure in two phases (raw string scan plus decompiled-code inference); recover evidentiary third-party SDK keys such as Alibaba, Baidu, Tencent, and Huawei app identifiers; and prioritize first-party code while suppressing AndroidX and third-party library noise.
+---
+
+# Android Malware Analysis
+
+Configuration version: `v2.0`.
+
+Treat every heuristic as evidence, not proof. Keep conclusions traceable, confidence-marked, and narrowly scoped to static analysis.
+
+## Quick Start
+
+```bash
+python scripts/check_android_tools.py
+python scripts/investigate_android_app.py <sample.apk-or-dir> --output-dir <artifact-dir> --mode auto
+```
+
+If `--output-dir` is omitted, use the sample directory as output root:
+
+- Final reports: `报告/<sample-name>/`
+- Intermediate artifacts: `cache/<sample-name>/`
+- Shared skill memory: `skill-ledger.json` in the skill root
+
+Expected outputs:
+
+- `cache/<sample-name>/analysis.json`
+- `cache/<sample-name>/callback-config.json`
+- `cache/<sample-name>/noise-log.json`
+- `报告/<sample-name>/report.md`
+- `报告/<sample-name>/report.docx`
+
+## Core Rules
+
+1. Review the shared APK ledger first with `python scripts/skill_ledger.py review`; record only new problems or verified better fallbacks. Details: [ledger.md](./references/ledger.md)
+2. Prefer the orchestrator first, then fill gaps with narrow manual commands. Details: [workflow.md](./references/workflow.md)
+3. Reuse existing JADX/apktool/output artifacts before rerunning extraction or broad scans. Known pitfalls: [gotchas.md](./references/gotchas.md)
+4. Prefer first-party code and manifest-linked components; treat AndroidX and third-party libraries as background unless they enter the entry/callback path. Details: [library-triage.md](./references/library-triage.md)
+5. Keep final reports clean; route noisy callback and SDK-key candidates to `cache/<sample-name>/noise-log.json` instead of promoting them into final verdicts.
+
+## Fixed Workflow
+
+| Stage | Goal | Details |
+|------|------|---------|
+| 0 | Classify input and reuse state | [workflow.md](./references/workflow.md) |
+| 1 | Check tooling and choose `full` / `best-effort` | [workflow.md](./references/workflow.md) |
+| 2 | Reuse or extract missing artifacts | [workflow.md](./references/workflow.md) |
+| 3 | Build manifest/app profile and first-party scope | [workflow.md](./references/workflow.md) |
+| 4 | Run callback, crypto, SDK-key, and native triage | [workflow.md](./references/workflow.md) |
+| 5 | Reconstruct only relevant execution flow | [workflow.md](./references/workflow.md) |
+| 6 | Generate Chinese Markdown and DOCX reports | [reporting.md](./references/reporting.md) |
+
+Use [decision-gates.md](./references/decision-gates.md) after each stage to decide what to skip, continue, or escalate.
+
+## High-Value Gotchas
+
+- `string_scan` often surfaces public or library URLs; prefer `code_inference` when first-party evidence exists.
+- Manifest package names can be fake; derive first-party scope from manifest-linked components instead.
+- Unsupported ZIP compression should fall back to `7z` or stable decoded directories, not repeat the same failing path.
+- Generic `appkey` / `appid` / `token` values are noise unless tied to vendor context and app-owned config.
+- Native `.so` files should trigger minimal strings-based triage first, not an automatic deep-dive.
+
+Read [gotchas.md](./references/gotchas.md) for stable `ledger_key` values and preferred responses.
+
+## Decompiled-Code Triage
+
+Prioritize first-party packages, manifest-linked components, and callback assembly code.
+If the call chain enters AndroidX or third-party SDKs, switch to [library-triage.md](./references/library-triage.md) and keep summaries short unless the library directly affects the verdict.
+
+## Guardrails
+
+### Hard Limits
+
+- Static analysis only. Never execute samples, install them on devices, or contact live callback infrastructure.
+- Never install analysis tools without user confirmation.
+- Never label third-party SDK or public domains as malicious C2 without code-path evidence.
+- Never output unverified conclusions without a confidence level or explicit limitation.
+
+### Soft Limits
+
+- Skip native deep-dive unless JNI breakage, packer signatures, or anti-analysis markers appear.
+- Skip AndroidX and third-party source reading unless they are on the manifest, entry, or callback path.
+- Skip split-APK deep analysis unless the base APK is missing required components or manifest context.
+
+## Escalation
+
+Use [escalation.md](./references/escalation.md) when bundled scripts or existing artifacts cannot answer the current question and you need a controlled deeper pass.
+
+## Resources
+
+- `scripts/investigate_android_app.py`: Main orchestrator
+- `scripts/pipeline/`: Focused pipeline modules for manifest, behavior, callback, SDK-key, native, flow, and reporting logic
+- `scripts/analyze_package.py`: Raw IOC-first pre-check
+- `scripts/skill_ledger.py`: Shared APK-analysis memory
+- [workflow.md](./references/workflow.md): Full stage matrix and tool routing
+- [decision-gates.md](./references/decision-gates.md): Skip/continue/escalate decisions
+- [reporting.md](./references/reporting.md): Chinese report structure
+- [heuristics.md](./references/heuristics.md): Signal interpretation
+- [validation.md](./references/validation.md): Minimum verification steps
+- `examples/`: Sanitized sample outputs for expected artifact shape
+
+## Example Requests
+
+- `Analyze this APK and generate Chinese Markdown and DOCX investigation reports.`
+- `Extract main entry, dangerous permissions, callback infrastructure, and execution flow from this suspicious XAPK.`
+- `Explain whether this unpacked Android directory looks like information-stealing, dropper, or phishing behavior.`
+- `Pull callback endpoints, crypto clues, and vendor-backed SDK keys from this APK for later evidence requests.`
