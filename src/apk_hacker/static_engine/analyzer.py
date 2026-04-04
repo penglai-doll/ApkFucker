@@ -20,6 +20,7 @@ class StaticArtifacts:
     callback_config_json: Path
     noise_log_json: Path
     jadx_sources_dir: Path | None
+    jadx_project_dir: Path | None
 
 
 def build_output_layout(target_path: Path, output_dir: Path | None) -> dict[str, Path]:
@@ -58,6 +59,7 @@ def _parse_artifacts(payload: dict, layout: dict[str, Path]) -> StaticArtifacts:
         callback_config_json=Path(artifacts["callback_config_json"]),
         noise_log_json=Path(artifacts["noise_log_json"]),
         jadx_sources_dir=_optional_path(artifacts.get("jadx_sources_dir")),
+        jadx_project_dir=_optional_path(artifacts.get("jadx_project_dir")),
     )
 
 
