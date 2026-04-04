@@ -1,0 +1,28 @@
+{
+  "base_info": {
+    "package_name": "com.demo.shell",
+    "dangerous_permissions": [
+      "android.permission.READ_SMS",
+      "android.permission.RECORD_AUDIO"
+    ]
+  },
+  "technical_profile": {
+    "primary_type": "webview-hybrid",
+    "types": [
+      {
+        "name": "network-callback"
+      }
+    ]
+  },
+  "crypto_signals": [
+    "AES/CBC/PKCS5Padding",
+    "HMAC-SHA256"
+  ],
+  "packer_hints": [
+    "com.tencent.legu"
+  ],
+  "limitations": [
+    "jadx_sources_unavailable",
+    "callback_config_partial"
+  ]
+}

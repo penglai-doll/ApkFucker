@@ -1,0 +1,31 @@
+{
+  "endpoints": {
+    "urls": [
+      "https://demo-c2.example/api/upload"
+    ],
+    "domains": [
+      "demo-c2.example"
+    ],
+    "ips": [
+      "1.2.3.4"
+    ]
+  },
+  "clues": [
+    {
+      "source": "sources/com/demo/net/Config.java",
+      "value": "baseUrl = https://demo-c2.example/api/"
+    },
+    {
+      "source": "sources/com/demo/net/Api.java",
+      "value": "\"https://\" + host + \"/api/upload\""
+    }
+  ],
+  "code_inference": {
+    "clues": [
+      {
+        "source": "sources/com/demo/net/Api.java",
+        "value": "request body includes device_id and sms_body"
+      }
+    ]
+  }
+}
