@@ -1,0 +1,13 @@
+__pycache__/
+.pytest_cache/
+.DS_Store
+*.pyc
+*.pyo
+*.db
+*.sqlite3
+.venv/
+dist/
+build/
+output/
+报告/
+cache/
