@@ -18,6 +18,9 @@ dev = [
   "pytest-qt>=4.4,<5",
 ]
 
+[project.scripts]
+apk-hacker = "apk_hacker.interfaces.gui_pyqt.main:main"
+
 [tool.setuptools]
 package-dir = {"" = "src"}
 
