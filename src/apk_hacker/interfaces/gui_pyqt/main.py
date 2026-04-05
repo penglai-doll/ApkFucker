@@ -6,7 +6,9 @@ from typing import Sequence
 
 from PyQt6.QtWidgets import QApplication
 
+from apk_hacker.infrastructure.execution.real_backend import RealExecutionBackend
 from apk_hacker.interfaces.gui_pyqt.main_window import MainWindow
+from apk_hacker.interfaces.gui_pyqt.viewmodels import WorkbenchController
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -17,16 +19,33 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--db-root", type=Path, help="Optional cache/database directory.")
     parser.add_argument("--fixture-root", type=Path, help="Optional demo fixture root.")
     parser.add_argument("--jadx-sources-root", type=Path, help="Optional demo JADX sources root.")
+    parser.add_argument(
+        "--real-backend-command",
+        help="Optional command bridge for the Real Device execution mode.",
+    )
     return parser.parse_args(list(argv) if argv is not None else None)
 
 
 def build_window(args: argparse.Namespace) -> MainWindow:
+    controller = None
+    if args.real_backend_command:
+        controller = WorkbenchController(
+            fixture_root=args.fixture_root,
+            jadx_sources_root=args.jadx_sources_root,
+            scripts_root=args.scripts_root,
+            db_root=args.db_root,
+            execution_backends={
+                "real_device": RealExecutionBackend(command=args.real_backend_command),
+            },
+        )
+
     window = MainWindow(
         fixture_root=args.fixture_root,
         jadx_sources_root=args.jadx_sources_root,
         scripts_root=args.scripts_root,
         db_root=args.db_root,
         jadx_gui_path=args.jadx_gui_path,
+        controller=controller,
     )
     if args.sample is not None:
         window.task_center.sample_path_input.setText(str(args.sample))

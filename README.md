@@ -77,6 +77,14 @@ uv run apk-hacker \
   --jadx-gui-path /path/to/jadx-gui
 ```
 
+如果你想直接指定 `Real Device` 的命令型后端，也可以在启动时传入：
+
+```bash
+uv run apk-hacker \
+  --sample /path/to/sample.apk \
+  --real-backend-command "uv run apk-hacker-frida-probe-backend"
+```
+
 如果 `jadx-gui` 已经在 `PATH` 上，或者设置了环境变量 `APKHACKER_JADX_GUI_PATH`，应用会自动发现它。
 
 查看参数：
