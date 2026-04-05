@@ -29,6 +29,9 @@ class ScriptPlanWidget(QWidget):
             label = item.kind
             if target is not None:
                 label = f"{target.class_name}.{target.method_name} [{item.kind}]"
+            elif item.kind == "custom_script":
+                script_name = str(item.render_context.get("script_name", item.kind))
+                label = f"{script_name} [{item.kind}]"
             QListWidgetItem(label, self.plan_list)
 
     def _emit_run_requested(self) -> None:

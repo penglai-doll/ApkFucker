@@ -44,6 +44,7 @@ class WorkbenchState:
     hook_plan: HookPlan = field(default_factory=_empty_hook_plan)
     hook_events: tuple[HookEvent, ...] = ()
     custom_scripts: tuple[CustomScriptRecord, ...] = ()
+    selected_custom_scripts: tuple[CustomScriptRecord, ...] = ()
     search_query: str = ""
     run_count: int = 0
     summary_text: str = "No analysis run yet."
@@ -139,10 +140,32 @@ class WorkbenchController:
             return state
 
         selected_methods = (*state.selected_methods, method)
-        hook_plan = self._hook_plan_service.plan_for_methods(list(selected_methods))
+        hook_plan = self._hook_plan_service.plan_for_selection(
+            list(selected_methods),
+            list(state.selected_custom_scripts),
+        )
         return replace(
             state,
             selected_methods=selected_methods,
+            hook_plan=hook_plan,
+            summary_text=f"Prepared {len(hook_plan.items)} planned hook item(s).",
+        )
+
+    def add_custom_script_to_plan(self, state: WorkbenchState, script: CustomScriptRecord) -> WorkbenchState:
+        if any(existing.script_path == script.script_path for existing in state.selected_custom_scripts):
+            return replace(
+                state,
+                summary_text=f"Custom script {script.name} is already in the hook plan.",
+            )
+
+        selected_custom_scripts = (*state.selected_custom_scripts, script)
+        hook_plan = self._hook_plan_service.plan_for_selection(
+            list(state.selected_methods),
+            list(selected_custom_scripts),
+        )
+        return replace(
+            state,
+            selected_custom_scripts=selected_custom_scripts,
             hook_plan=hook_plan,
             summary_text=f"Prepared {len(hook_plan.items)} planned hook item(s).",
         )
@@ -151,7 +174,7 @@ class WorkbenchController:
         if state.current_job is None:
             return replace(state, summary_text="Load a workspace before running fake analysis.")
         if not state.hook_plan.items:
-            return replace(state, summary_text="Add at least one method to the hook plan first.")
+            return replace(state, summary_text="Add at least one hook plan item first.")
 
         events = self._fake_backend.execute(state.current_job.job_id, state.hook_plan)
         run_count = state.run_count + 1

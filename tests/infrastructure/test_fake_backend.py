@@ -31,7 +31,7 @@ def test_fake_backend_emits_hook_events() -> None:
     assert events[0].method_name == "buildUploadUrl"
 
 
-def test_fake_backend_skips_disabled_and_targetless_items() -> None:
+def test_fake_backend_skips_disabled_and_unsupported_targetless_items() -> None:
     target = MethodHookTarget(
         target_id="target-1",
         class_name="com.demo.net.Config",
@@ -53,14 +53,40 @@ def test_fake_backend_skips_disabled_and_targetless_items() -> None:
             ),
             HookPlanItem(
                 item_id="item-2",
-                kind="custom_script",
+                kind="placeholder",
                 enabled=True,
                 inject_order=2,
                 target=None,
                 render_context={"script_path": "/tmp/demo.js"},
-                plugin_id="custom.local-script",
+                plugin_id="placeholder.plugin",
             ),
         )
     )
 
     assert FakeExecutionBackend().execute("job-1", plan) == ()
+
+
+def test_fake_backend_emits_custom_script_events() -> None:
+    plan = HookPlan(
+        items=(
+            HookPlanItem(
+                item_id="item-1",
+                kind="custom_script",
+                enabled=True,
+                inject_order=1,
+                target=None,
+                render_context={
+                    "script_name": "trace_login",
+                    "script_path": "/tmp/trace_login.js",
+                },
+                plugin_id="custom.local-script",
+            ),
+        )
+    )
+
+    events = FakeExecutionBackend().execute("job-1", plan)
+
+    assert len(events) == 1
+    assert events[0].event_type == "script_loaded"
+    assert events[0].class_name == "custom.script"
+    assert events[0].method_name == "trace_login"

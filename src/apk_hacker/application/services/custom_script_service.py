@@ -4,8 +4,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from uuid import uuid4
 
-from apk_hacker.domain.models.hook_plan import HookPlanItem
-
 
 @dataclass(frozen=True, slots=True)
 class CustomScriptRecord:
@@ -30,14 +28,3 @@ class CustomScriptService:
                 )
             )
         return records
-
-    def build_plan_item(self, record: CustomScriptRecord, inject_order: int) -> HookPlanItem:
-        return HookPlanItem(
-            item_id=str(uuid4()),
-            kind="custom_script",
-            enabled=True,
-            inject_order=inject_order,
-            target=None,
-            render_context={"script_path": str(record.script_path)},
-            plugin_id="custom.local-script",
-        )

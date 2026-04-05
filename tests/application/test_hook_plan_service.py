@@ -50,16 +50,29 @@ def test_custom_script_service_discovers_local_frida_scripts(tmp_path: Path) -> 
     assert [item.name for item in result] == ["trace_login"]
 
 
-def test_custom_script_service_builds_plan_item_for_local_script(tmp_path: Path) -> None:
+def test_hook_plan_service_combines_methods_and_custom_scripts(tmp_path: Path) -> None:
     script_path = tmp_path / "trace_login.js"
     script_path.write_text("send('trace');\n", encoding="utf-8")
-    service = CustomScriptService(tmp_path)
-    record = service.discover()[0]
+    record = CustomScriptService(tmp_path).discover()[0]
+    methods = [
+        MethodIndexEntry(
+            class_name="com.demo.net.Config",
+            method_name="buildUploadUrl",
+            parameter_types=("String",),
+            return_type="String",
+            is_constructor=False,
+            overload_count=2,
+            source_path="tests/fixtures/jadx_sources/com/demo/net/Config.java",
+            line_hint=4,
+        )
+    ]
 
-    result = service.build_plan_item(record, inject_order=3)
+    result = HookPlanService().plan_for_selection(methods, [record])
 
-    assert result.kind == "custom_script"
-    assert result.inject_order == 3
-    assert result.target is None
-    assert result.plugin_id == "custom.local-script"
-    assert result.render_context == {"script_path": str(script_path)}
+    assert [item.kind for item in result.items] == ["method_hook", "custom_script"]
+    assert [item.inject_order for item in result.items] == [1, 2]
+    assert result.items[1].plugin_id == "custom.local-script"
+    assert result.items[1].render_context == {
+        "script_name": "trace_login",
+        "script_path": str(script_path),
+    }

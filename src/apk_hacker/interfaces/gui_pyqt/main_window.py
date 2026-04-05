@@ -68,6 +68,7 @@ class MainWindow(QMainWindow):
 
         self.method_index.on_search_requested = self._search_methods
         self.method_index.on_add_selected_requested = self._add_selected_method
+        self.custom_scripts.on_add_selected_requested = self._add_selected_custom_script
         self.script_plan.on_run_requested = self._run_fake_analysis
         self.task_center.run_analysis_button.clicked.connect(self._load_sample_workspace)
         self.task_center.load_demo_button.clicked.connect(self._load_demo_workspace)
@@ -134,6 +135,13 @@ class MainWindow(QMainWindow):
 
     def _run_fake_analysis(self) -> None:
         self._state = self._controller.run_fake_analysis(self._state)
+        self._sync_ui()
+
+    def _add_selected_custom_script(self) -> None:
+        script = self.custom_scripts.current_script()
+        if script is None:
+            return
+        self._state = self._controller.add_custom_script_to_plan(self._state, script)
         self._sync_ui()
 
     def _open_in_jadx(self) -> None:

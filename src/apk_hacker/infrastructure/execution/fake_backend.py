@@ -12,21 +12,46 @@ class FakeExecutionBackend(ExecutionBackend):
         events: list[HookEvent] = []
 
         for item in plan.items:
-            if not item.enabled or item.target is None:
+            if not item.enabled:
                 continue
 
+            if item.target is not None:
+                events.append(
+                    HookEvent(
+                        timestamp=datetime.now(timezone.utc).isoformat(),
+                        job_id=job_id,
+                        event_type="method_call",
+                        source="fake",
+                        class_name=item.target.class_name,
+                        method_name=item.target.method_name,
+                        arguments=item.target.parameter_types,
+                        return_value="fake-return",
+                        stacktrace=f"{item.target.class_name}.{item.target.method_name}:1",
+                        raw_payload={"plugin_id": item.plugin_id or ""},
+                    )
+                )
+                continue
+
+            if item.kind != "custom_script":
+                continue
+
+            script_name = str(item.render_context.get("script_name", "custom_script"))
+            script_path = str(item.render_context.get("script_path", ""))
             events.append(
                 HookEvent(
                     timestamp=datetime.now(timezone.utc).isoformat(),
                     job_id=job_id,
-                    event_type="method_call",
+                    event_type="script_loaded",
                     source="fake",
-                    class_name=item.target.class_name,
-                    method_name=item.target.method_name,
-                    arguments=item.target.parameter_types,
-                    return_value="fake-return",
-                    stacktrace=f"{item.target.class_name}.{item.target.method_name}:1",
-                    raw_payload={"plugin_id": item.plugin_id or ""},
+                    class_name="custom.script",
+                    method_name=script_name,
+                    arguments=(script_path,),
+                    return_value="script-ready",
+                    stacktrace=f"custom.script.{script_name}:1",
+                    raw_payload={
+                        "plugin_id": item.plugin_id or "",
+                        "script_path": script_path,
+                    },
                 )
             )
 
