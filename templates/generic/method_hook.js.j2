@@ -1,0 +1,17 @@
+Java.perform(function() {
+    var TargetClass = Java.use("{{ className }}");
+    var overload = TargetClass["{{ methodName }}"].overload(
+{% for param_type in paramTypes %}
+        "{{ param_type }}"{% if not loop.last %},{% endif %}
+{% endfor %}
+    );
+
+    overload.implementation = function() {
+        send(JSON.stringify({
+            "event_type": "method_call",
+            "class_name": "{{ className }}",
+            "method_name": "{{ methodName }}"
+        }));
+        return overload.apply(this, arguments);
+    };
+});
