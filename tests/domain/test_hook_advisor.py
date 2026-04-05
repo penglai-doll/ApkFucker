@@ -92,3 +92,4 @@ def test_offline_hook_advisor_adds_template_recommendations_from_static_signals(
 
     assert "OkHttp3 SSL Unpinning" in template_titles
     assert "Cipher Monitor" in template_titles
+    assert "Frida Detection Bypass" in template_titles
