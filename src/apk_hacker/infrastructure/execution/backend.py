@@ -6,6 +6,10 @@ from apk_hacker.domain.models.hook_event import HookEvent
 from apk_hacker.domain.models.hook_plan import HookPlan
 
 
+class ExecutionBackendUnavailable(RuntimeError):
+    pass
+
+
 class ExecutionBackend(ABC):
     @abstractmethod
     def execute(self, job_id: str, plan: HookPlan) -> tuple[HookEvent, ...]:

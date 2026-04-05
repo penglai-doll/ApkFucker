@@ -15,7 +15,9 @@ from apk_hacker.domain.models.job import AnalysisJob
 from apk_hacker.domain.models.static_inputs import StaticInputs
 from apk_hacker.domain.services.hook_search import HookSearch
 from apk_hacker.domain.services.method_indexer import JavaMethodIndexer
+from apk_hacker.infrastructure.execution.backend import ExecutionBackend, ExecutionBackendUnavailable
 from apk_hacker.infrastructure.execution.fake_backend import FakeExecutionBackend
+from apk_hacker.infrastructure.execution.real_backend import RealExecutionBackend
 from apk_hacker.infrastructure.persistence.hook_log_store import HookLogStore
 
 
@@ -61,6 +63,7 @@ class WorkbenchController:
         job_service: JobService | None = None,
         fixture_root: Path | None = None,
         jadx_sources_root: Path | None = None,
+        execution_backends: dict[str, ExecutionBackend] | None = None,
     ) -> None:
         self._fixture_root = fixture_root
         self._jadx_sources_root = jadx_sources_root
@@ -72,8 +75,13 @@ class WorkbenchController:
         self._indexer = JavaMethodIndexer()
         self._search = HookSearch()
         self._hook_plan_service = HookPlanService()
-        self._fake_backend = FakeExecutionBackend()
         self._custom_scripts = CustomScriptService(scripts_root)
+        self._execution_backends = {
+            "fake_backend": FakeExecutionBackend(),
+            "real_device": RealExecutionBackend(),
+        }
+        if execution_backends is not None:
+            self._execution_backends.update(execution_backends)
 
     @property
     def demo_available(self) -> bool:
@@ -215,26 +223,40 @@ class WorkbenchController:
             return replace(state, summary_text="Load a workspace before running analysis.")
         if not state.hook_plan.items:
             return replace(state, summary_text="Add at least one hook plan item first.")
-        if state.execution_mode == "real_device":
+
+        backend = self._execution_backends.get(state.execution_mode)
+        if backend is None:
             return replace(
                 state,
                 hook_events=(),
-                summary_text="Real device execution is not available in this build yet.",
+                summary_text=f"Execution mode {state.execution_mode} is not available in this build.",
             )
-        return self.run_fake_analysis(state)
+        try:
+            events = backend.execute(state.current_job.job_id, state.hook_plan)
+        except ExecutionBackendUnavailable as exc:
+            return replace(state, hook_events=(), summary_text=str(exc))
+        return self._persist_execution(state, events)
 
     def run_fake_analysis(self, state: WorkbenchState) -> WorkbenchState:
         if state.current_job is None:
             return replace(state, summary_text="Load a workspace before running fake analysis.")
         if not state.hook_plan.items:
             return replace(state, summary_text="Add at least one hook plan item first.")
+        events = self._execution_backends["fake_backend"].execute(state.current_job.job_id, state.hook_plan)
+        return self._persist_execution(state, events)
 
-        events = self._fake_backend.execute(state.current_job.job_id, state.hook_plan)
+    def _persist_execution(
+        self,
+        state: WorkbenchState,
+        events: tuple[HookEvent, ...],
+    ) -> WorkbenchState:
+        if state.current_job is None:
+            return state
         run_count = state.run_count + 1
         db_path = self._db_root / f"{state.current_job.job_id}-run-{run_count}.sqlite3"
         store = HookLogStore(db_path)
         for event in events:
-            store.insert(event)
+            store.insert(replace(event, job_id=state.current_job.job_id))
         rows = tuple(store.list_for_job(state.current_job.job_id))
         return replace(
             state,

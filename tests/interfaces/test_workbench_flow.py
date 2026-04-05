@@ -2,9 +2,12 @@ from pathlib import Path
 
 from PyQt6.QtWidgets import QApplication
 
+from apk_hacker.domain.models.hook_event import HookEvent
+from apk_hacker.domain.models.hook_plan import HookPlan
 from apk_hacker.application.services.job_service import JobService
 from apk_hacker.interfaces.gui_pyqt.main_window import MainWindow
 from apk_hacker.interfaces.gui_pyqt.viewmodels import WorkbenchController
+from apk_hacker.infrastructure.execution.backend import ExecutionBackend
 from apk_hacker.static_engine.analyzer import StaticArtifacts
 
 
@@ -72,6 +75,16 @@ class _FakeJadxLauncher:
 
     def __call__(self, jadx_gui_path: str, target_path: Path) -> None:
         self.calls.append((jadx_gui_path, target_path))
+
+
+class _FakeRealBackend(ExecutionBackend):
+    def __init__(self, events: tuple[HookEvent, ...]) -> None:
+        self.events = events
+        self.calls: list[tuple[str, HookPlan]] = []
+
+    def execute(self, job_id: str, plan: HookPlan) -> tuple[HookEvent, ...]:
+        self.calls.append((job_id, plan))
+        return self.events
 
 
 def test_main_window_runs_real_static_analysis_workflow(tmp_path: Path) -> None:
@@ -395,5 +408,64 @@ def test_main_window_surfaces_unavailable_real_execution_mode(tmp_path: Path) ->
 
     assert "real device execution is not available" in window.results_summary.summary_label.text().lower()
     assert window.execution_logs.log_list.count() == 0
+    assert app is not None
+    window.close()
+
+
+def test_main_window_runs_injected_real_backend_when_mode_is_real_device(tmp_path: Path) -> None:
+    app = _app()
+    sample_path = tmp_path / "sample.apk"
+    sample_path.write_bytes(b"apk")
+    output_root = tmp_path / "artifacts"
+    fixture_root = Path("tests/fixtures/static_outputs").resolve()
+    jadx_sources = Path("tests/fixtures/jadx_sources").resolve()
+    fake_analyzer = _FakeStaticAnalyzer(
+        StaticArtifacts(
+            output_root=output_root,
+            report_dir=output_root / "报告" / "sample",
+            cache_dir=output_root / "cache" / "sample",
+            analysis_json=fixture_root / "sample_analysis.json",
+            callback_config_json=fixture_root / "sample_callback-config.json",
+            noise_log_json=output_root / "cache" / "sample" / "noise-log.json",
+            jadx_sources_dir=jadx_sources,
+            jadx_project_dir=None,
+        )
+    )
+    real_events = (
+        HookEvent(
+            timestamp="2026-04-05T00:00:00+00:00",
+            job_id="job-1",
+            event_type="method_call",
+            source="real",
+            class_name="com.demo.net.Config",
+            method_name="buildUploadUrl",
+            arguments=("String",),
+            return_value="real-return",
+            stacktrace="com.demo.net.Config.buildUploadUrl:1",
+            raw_payload={"plugin_id": "builtin.method-hook"},
+        ),
+    )
+    real_backend = _FakeRealBackend(real_events)
+    controller = WorkbenchController(
+        job_service=JobService(static_analyzer=fake_analyzer),
+        scripts_root=tmp_path / "scripts",
+        db_root=tmp_path,
+        execution_backends={"real_device": real_backend},
+    )
+    window = MainWindow(controller=controller)
+
+    window.task_center.sample_path_input.setText(str(sample_path))
+    window.task_center.run_analysis_button.click()
+    window.method_index.search_input.setText("buildUploadUrl")
+    window.method_index.apply_search()
+    window.method_index.method_list.setCurrentRow(0)
+    window.method_index.add_selected_button.click()
+    window.script_plan.execution_mode_combo.setCurrentText("Real Device")
+    window.script_plan.run_fake_button.click()
+
+    assert len(real_backend.calls) == 1
+    assert window.execution_logs.log_list.count() == 1
+    assert "real-return" in window.execution_logs.log_list.item(0).text()
+    assert "1 event" in window.results_summary.summary_label.text()
     assert app is not None
     window.close()
