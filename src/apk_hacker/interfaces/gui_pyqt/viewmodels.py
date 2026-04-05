@@ -161,20 +161,18 @@ class WorkbenchController:
         )
 
     def add_method_to_plan(self, state: WorkbenchState, method: MethodIndexEntry) -> WorkbenchState:
-        source = HookPlanSource.from_method(method)
-        if any(existing.source_id == source.source_id for existing in state.selected_sources):
-            return state
-
-        selected_sources = (*state.selected_sources, source)
-        hook_plan = self._hook_plan_service.plan_for_sources(list(selected_sources))
-        return replace(
-            state,
-            selected_sources=selected_sources,
-            hook_plan=hook_plan,
-            summary_text=f"Prepared {len(hook_plan.items)} planned hook item(s).",
-        )
+        return self._add_source_to_plan(state, HookPlanSource.from_method(method))
 
     def add_recommendation_to_plan(self, state: WorkbenchState, recommendation: HookRecommendation) -> WorkbenchState:
+        if recommendation.kind == "template_hook":
+            if recommendation.template_id is None or recommendation.template_name is None or recommendation.plugin_id is None:
+                return replace(state, summary_text="The selected template recommendation is incomplete.")
+            source = HookPlanSource.from_template(
+                template_id=recommendation.template_id,
+                template_name=recommendation.template_name,
+                plugin_id=recommendation.plugin_id,
+            )
+            return self._add_source_to_plan(state, source)
         if recommendation.method is None:
             return replace(state, summary_text="The selected recommendation is advisory only.")
         return self.add_method_to_plan(state, recommendation.method)
@@ -198,20 +196,8 @@ class WorkbenchController:
 
     def add_custom_script_to_plan(self, state: WorkbenchState, script: CustomScriptRecord) -> WorkbenchState:
         source = HookPlanSource.from_custom_script(script.name, str(script.script_path))
-        if any(existing.source_id == source.source_id for existing in state.selected_sources):
-            return replace(
-                state,
-                summary_text=f"Custom script {script.name} is already in the hook plan.",
-            )
-
-        selected_sources = (*state.selected_sources, source)
-        hook_plan = self._hook_plan_service.plan_for_sources(list(selected_sources))
-        return replace(
-            state,
-            selected_sources=selected_sources,
-            hook_plan=hook_plan,
-            summary_text=f"Prepared {len(hook_plan.items)} planned hook item(s).",
-        )
+        duplicate_message = f"Custom script {script.name} is already in the hook plan."
+        return self._add_source_to_plan(state, source, duplicate_message=duplicate_message)
 
     def select_custom_script(self, state: WorkbenchState, script: CustomScriptRecord | None) -> WorkbenchState:
         if script is None:
@@ -293,4 +279,24 @@ class WorkbenchController:
             hook_events=rows,
             run_count=run_count,
             summary_text=f"Captured {len(rows)} event(s) from {len(state.hook_plan.items)} planned hook(s).",
+        )
+
+    def _add_source_to_plan(
+        self,
+        state: WorkbenchState,
+        source: HookPlanSource,
+        duplicate_message: str | None = None,
+    ) -> WorkbenchState:
+        if any(existing.source_id == source.source_id for existing in state.selected_sources):
+            if duplicate_message is not None:
+                return replace(state, summary_text=duplicate_message)
+            return state
+
+        selected_sources = (*state.selected_sources, source)
+        hook_plan = self._hook_plan_service.plan_for_sources(list(selected_sources))
+        return replace(
+            state,
+            selected_sources=selected_sources,
+            hook_plan=hook_plan,
+            summary_text=f"Prepared {len(hook_plan.items)} planned hook item(s).",
         )

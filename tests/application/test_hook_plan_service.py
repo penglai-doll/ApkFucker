@@ -90,3 +90,25 @@ def test_hook_plan_service_combines_methods_and_custom_scripts(tmp_path: Path) -
         "script_name": "trace_login",
         "script_path": str(script_path),
     }
+
+
+def test_hook_plan_service_builds_template_hook_items() -> None:
+    result = HookPlanService().plan_for_sources(
+        [
+            HookPlanSource.from_template(
+                template_id="ssl.okhttp3_unpin",
+                template_name="OkHttp3 SSL Unpinning",
+                plugin_id="builtin.ssl-okhttp3-unpin",
+            )
+        ]
+    )
+
+    assert len(result.items) == 1
+    assert result.items[0].kind == "template_hook"
+    assert result.items[0].inject_order == 1
+    assert result.items[0].target is None
+    assert result.items[0].plugin_id == "builtin.ssl-okhttp3-unpin"
+    assert result.items[0].render_context == {
+        "template_id": "ssl.okhttp3_unpin",
+        "template_name": "OkHttp3 SSL Unpinning",
+    }

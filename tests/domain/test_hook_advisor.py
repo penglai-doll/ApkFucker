@@ -74,10 +74,21 @@ def test_offline_hook_advisor_uses_permission_and_crypto_terms_for_scoring() -> 
         ),
         method_index,
     )
+    method_recommendations = [item for item in recommendations if item.method is not None]
 
-    assert [item.method.method_name for item in recommendations if item.method is not None] == [
+    assert [item.method.method_name for item in method_recommendations] == [
         "encryptPayload",
         "recordAudioClip",
     ]
-    assert "crypto" in recommendations[0].reason.lower()
-    assert "audio" in recommendations[1].matched_terms
+    assert "crypto" in method_recommendations[0].reason.lower()
+    assert "audio" in method_recommendations[1].matched_terms
+
+
+def test_offline_hook_advisor_adds_template_recommendations_from_static_signals() -> None:
+    method_index = JavaMethodIndexer().build(Path("tests/fixtures/jadx_sources"))
+
+    recommendations = OfflineHookAdvisor().recommend(_static_inputs(), method_index)
+    template_titles = [item.title for item in recommendations if item.kind == "template_hook"]
+
+    assert "OkHttp3 SSL Unpinning" in template_titles
+    assert "Cipher Monitor" in template_titles

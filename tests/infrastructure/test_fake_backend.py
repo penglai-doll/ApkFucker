@@ -131,3 +131,29 @@ def test_fake_backend_respects_inject_order_when_plan_items_are_unsorted() -> No
 
     assert [event.event_type for event in events] == ["script_loaded", "method_call"]
     assert [event.method_name for event in events] == ["trace_login", "buildUploadUrl"]
+
+
+def test_fake_backend_emits_template_hook_events() -> None:
+    plan = HookPlan(
+        items=(
+            HookPlanItem(
+                item_id="item-1",
+                kind="template_hook",
+                enabled=True,
+                inject_order=1,
+                target=None,
+                render_context={
+                    "template_id": "ssl.okhttp3_unpin",
+                    "template_name": "OkHttp3 SSL Unpinning",
+                },
+                plugin_id="builtin.ssl-okhttp3-unpin",
+            ),
+        )
+    )
+
+    events = FakeExecutionBackend().execute("job-1", plan)
+
+    assert len(events) == 1
+    assert events[0].event_type == "template_loaded"
+    assert events[0].class_name == "builtin.template"
+    assert events[0].method_name == "OkHttp3 SSL Unpinning"

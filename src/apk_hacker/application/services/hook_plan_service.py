@@ -20,6 +20,16 @@ class HookPlanService:
             if source.method is not None:
                 items.append(self._build_method_item(source.method, inject_order))
                 continue
+            if source.kind == "template_hook" and source.template_id is not None and source.template_name is not None:
+                items.append(
+                    self._build_template_item(
+                        template_id=source.template_id,
+                        template_name=source.template_name,
+                        plugin_id=source.plugin_id or f"builtin.{source.template_id}",
+                        inject_order=inject_order,
+                    )
+                )
+                continue
             if source.kind != "custom_script" or source.script_name is None or source.script_path is None:
                 continue
             items.append(
@@ -68,4 +78,19 @@ class HookPlanService:
                 "script_path": script_path,
             },
             plugin_id="custom.local-script",
+        )
+
+    @staticmethod
+    def _build_template_item(template_id: str, template_name: str, plugin_id: str, inject_order: int) -> HookPlanItem:
+        return HookPlanItem(
+            item_id=str(uuid4()),
+            kind="template_hook",
+            enabled=True,
+            inject_order=inject_order,
+            target=None,
+            render_context={
+                "template_id": template_id,
+                "template_name": template_name,
+            },
+            plugin_id=plugin_id,
         )

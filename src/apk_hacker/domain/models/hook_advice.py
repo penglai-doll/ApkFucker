@@ -14,3 +14,6 @@ class HookRecommendation:
     score: int
     matched_terms: tuple[str, ...]
     method: MethodIndexEntry | None = None
+    template_id: str | None = None
+    template_name: str | None = None
+    plugin_id: str | None = None

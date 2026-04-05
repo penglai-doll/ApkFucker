@@ -35,6 +35,9 @@ class ScriptPlanWidget(QWidget):
             label = item.kind
             if target is not None:
                 label = f"{target.class_name}.{target.method_name} [{item.kind}]"
+            elif item.kind == "template_hook":
+                template_name = str(item.render_context.get("template_name", item.kind))
+                label = f"{template_name} [{item.kind}]"
             elif item.kind == "custom_script":
                 script_name = str(item.render_context.get("script_name", item.kind))
                 label = f"{script_name} [{item.kind}]"

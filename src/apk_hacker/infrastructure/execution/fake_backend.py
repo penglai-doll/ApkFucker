@@ -32,6 +32,28 @@ class FakeExecutionBackend(ExecutionBackend):
                 )
                 continue
 
+            if item.kind == "template_hook":
+                template_name = str(item.render_context.get("template_name", item.kind))
+                template_id = str(item.render_context.get("template_id", ""))
+                events.append(
+                    HookEvent(
+                        timestamp=datetime.now(timezone.utc).isoformat(),
+                        job_id=job_id,
+                        event_type="template_loaded",
+                        source="fake",
+                        class_name="builtin.template",
+                        method_name=template_name,
+                        arguments=(template_id,),
+                        return_value="template-ready",
+                        stacktrace=f"builtin.template.{template_name}:1",
+                        raw_payload={
+                            "plugin_id": item.plugin_id or "",
+                            "template_id": template_id,
+                        },
+                    )
+                )
+                continue
+
             if item.kind != "custom_script":
                 continue
 

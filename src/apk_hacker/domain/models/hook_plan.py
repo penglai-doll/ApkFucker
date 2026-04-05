@@ -12,6 +12,9 @@ class HookPlanSource:
     method: MethodIndexEntry | None = None
     script_name: str | None = None
     script_path: str | None = None
+    template_id: str | None = None
+    template_name: str | None = None
+    plugin_id: str | None = None
 
     @classmethod
     def from_method(cls, method: MethodIndexEntry) -> "HookPlanSource":
@@ -29,6 +32,16 @@ class HookPlanSource:
             kind="custom_script",
             script_name=script_name,
             script_path=script_path,
+        )
+
+    @classmethod
+    def from_template(cls, template_id: str, template_name: str, plugin_id: str) -> "HookPlanSource":
+        return cls(
+            source_id=f"template:{plugin_id}:{template_id}",
+            kind="template_hook",
+            template_id=template_id,
+            template_name=template_name,
+            plugin_id=plugin_id,
         )
 
 

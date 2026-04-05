@@ -100,7 +100,7 @@ class _SignalGroup:
 class OfflineHookAdvisor:
     def recommend(self, static_inputs: StaticInputs, method_index: MethodIndex, limit: int = 8) -> tuple[HookRecommendation, ...]:
         signal_groups = self._build_signal_groups(static_inputs)
-        recommendations: list[HookRecommendation] = []
+        recommendations = list(self._build_template_recommendations(static_inputs))
 
         for method in method_index.methods:
             recommendation = self._score_method(method, signal_groups)
@@ -117,6 +117,41 @@ class OfflineHookAdvisor:
             )
         )
         return tuple(recommendations[:limit])
+
+    def _build_template_recommendations(self, static_inputs: StaticInputs) -> tuple[HookRecommendation, ...]:
+        recommendations: list[HookRecommendation] = []
+
+        if static_inputs.callback_endpoints or any("network" in tag or "webview" in tag for tag in static_inputs.technical_tags):
+            recommendations.append(
+                HookRecommendation(
+                    recommendation_id="template:ssl.okhttp3_unpin",
+                    kind="template_hook",
+                    title="OkHttp3 SSL Unpinning",
+                    reason="Callback / network clues suggest outbound HTTPS traffic that may need certificate bypassing.",
+                    score=7,
+                    matched_terms=("ssl", "https", "network"),
+                    template_id="ssl.okhttp3_unpin",
+                    template_name="OkHttp3 SSL Unpinning",
+                    plugin_id="builtin.ssl-okhttp3-unpin",
+                )
+            )
+
+        if static_inputs.crypto_signals:
+            recommendations.append(
+                HookRecommendation(
+                    recommendation_id="template:crypto.cipher_monitor",
+                    kind="template_hook",
+                    title="Cipher Monitor",
+                    reason="Crypto signals were detected in static analysis, so a generic cipher monitor is a strong starting point.",
+                    score=6,
+                    matched_terms=("crypto", "cipher"),
+                    template_id="crypto.cipher_monitor",
+                    template_name="Cipher Monitor",
+                    plugin_id="builtin.crypto-cipher-monitor",
+                )
+            )
+
+        return tuple(recommendations)
 
     def _build_signal_groups(self, static_inputs: StaticInputs) -> tuple[_SignalGroup, ...]:
         groups: list[_SignalGroup] = []
