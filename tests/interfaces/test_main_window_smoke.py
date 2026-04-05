@@ -26,3 +26,14 @@ def test_main_window_has_expected_navigation() -> None:
     assert window.content_stack.count() == len(labels)
     assert app is not None
     window.close()
+
+
+def test_main_window_disables_demo_loading_without_fixture_sources() -> None:
+    app = _app()
+    window = MainWindow()
+
+    assert app is not None
+    assert not window.task_center.load_demo_button.isEnabled()
+    assert "not configured" in window.results_summary.summary_label.text().lower()
+
+    window.close()
