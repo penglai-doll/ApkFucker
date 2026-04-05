@@ -52,16 +52,18 @@ class WorkbenchState:
 class WorkbenchController:
     def __init__(
         self,
-        fixture_root: Path,
-        jadx_sources_root: Path,
         scripts_root: Path,
         db_root: Path,
+        job_service: JobService | None = None,
+        fixture_root: Path | None = None,
+        jadx_sources_root: Path | None = None,
     ) -> None:
         self._fixture_root = fixture_root
         self._jadx_sources_root = jadx_sources_root
         self._scripts_root = scripts_root
         self._db_root = db_root
-        self._job_service = JobService()
+        self._analysis_output_root = db_root / "static-analysis"
+        self._job_service = job_service or JobService()
         self._adapter = StaticAdapter()
         self._indexer = JavaMethodIndexer()
         self._search = HookSearch()
@@ -69,12 +71,18 @@ class WorkbenchController:
         self._fake_backend = FakeExecutionBackend()
         self._custom_scripts = CustomScriptService(scripts_root)
 
+    @property
+    def demo_available(self) -> bool:
+        return self._fixture_root is not None and self._jadx_sources_root is not None
+
     def load_demo_workspace(self, sample_path: Path) -> WorkbenchState:
+        if not self.demo_available:
+            raise RuntimeError("Demo workspace is not configured.")
         analysis_report = json.loads(
-            (self._fixture_root / "sample_analysis.json").read_text(encoding="utf-8")
+            (self._fixture_root / "sample_analysis.json").read_text(encoding="utf-8")  # type: ignore[operator]
         )
         callback_config = json.loads(
-            (self._fixture_root / "sample_callback-config.json").read_text(encoding="utf-8")
+            (self._fixture_root / "sample_callback-config.json").read_text(encoding="utf-8")  # type: ignore[operator]
         )
         job = self._job_service.create_job(sample_path)
         static_inputs = self._adapter.adapt(
@@ -82,12 +90,12 @@ class WorkbenchController:
             analysis_report=analysis_report,
             callback_config=callback_config,
             artifact_paths={
-                "analysis_report": self._fixture_root / "sample_analysis.json",
-                "callback_config": self._fixture_root / "sample_callback-config.json",
+                "analysis_report": self._fixture_root / "sample_analysis.json",  # type: ignore[operator]
+                "callback_config": self._fixture_root / "sample_callback-config.json",  # type: ignore[operator]
                 "jadx_sources": self._jadx_sources_root,
             },
         )
-        method_index = self._indexer.build(self._jadx_sources_root)
+        method_index = self._indexer.build(self._jadx_sources_root)  # type: ignore[arg-type]
         custom_scripts = tuple(self._custom_scripts.discover())
         visible_methods = method_index.methods
 
@@ -99,6 +107,22 @@ class WorkbenchController:
             visible_methods=visible_methods,
             custom_scripts=custom_scripts,
             summary_text=f"Loaded demo workspace for {sample_path.name}.",
+        )
+
+    def load_sample_workspace(self, sample_path: Path) -> WorkbenchState:
+        job, static_inputs, method_index = self._job_service.load_static_workspace(
+            sample_path,
+            output_dir=self._analysis_output_root,
+        )
+        custom_scripts = tuple(self._custom_scripts.discover())
+        return WorkbenchState(
+            sample_path=sample_path,
+            current_job=job,
+            static_inputs=static_inputs,
+            method_index=method_index,
+            visible_methods=method_index.methods,
+            custom_scripts=custom_scripts,
+            summary_text=f"Static analysis finished for {sample_path.name}.",
         )
 
     def search_methods(self, state: WorkbenchState, query: str) -> WorkbenchState:

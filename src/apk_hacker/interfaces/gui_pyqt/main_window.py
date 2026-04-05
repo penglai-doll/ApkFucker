@@ -31,20 +31,16 @@ class MainWindow(QMainWindow):
         repo_root = Path(__file__).resolve().parents[4]
         if controller is not None:
             self._controller = controller
-            demo_available = True
-        elif fixture_root is not None and jadx_sources_root is not None:
+        else:
             self._controller = WorkbenchController(
                 fixture_root=fixture_root,
                 jadx_sources_root=jadx_sources_root,
                 scripts_root=scripts_root or repo_root / "user_data" / "frida_plugins" / "custom",
                 db_root=db_root or repo_root / "cache" / "gui",
             )
-            demo_available = True
-        else:
-            self._controller = None
-            demo_available = False
+        demo_available = self._controller.demo_available
         self._state = WorkbenchState(
-            summary_text="Demo workspace not configured for this build." if not demo_available else "No analysis run yet."
+            summary_text="Ready to analyze a sample." if not demo_available else "No analysis run yet."
         )
 
         self.open_jadx_action = QAction("Open in JADX", self)
@@ -65,7 +61,9 @@ class MainWindow(QMainWindow):
         self.method_index.on_search_requested = self._search_methods
         self.method_index.on_add_selected_requested = self._add_selected_method
         self.script_plan.on_run_requested = self._run_fake_analysis
+        self.task_center.run_analysis_button.clicked.connect(self._load_sample_workspace)
         self.task_center.load_demo_button.clicked.connect(self._load_demo_workspace)
+        self.task_center.set_analysis_available(True)
         self.task_center.set_demo_available(demo_available)
 
         for page, widget in self._pages():
@@ -96,7 +94,7 @@ class MainWindow(QMainWindow):
         )
 
     def _load_demo_workspace(self) -> None:
-        if self._controller is None:
+        if not self._controller.demo_available:
             self._state = WorkbenchState(summary_text="Demo workspace not configured for this build.")
             self._sync_ui()
             return
@@ -104,15 +102,22 @@ class MainWindow(QMainWindow):
         self._state = self._controller.load_demo_workspace(sample_path)
         self._sync_ui()
 
+    def _load_sample_workspace(self) -> None:
+        sample_path = self.task_center.selected_sample_path()
+        try:
+            self._state = self._controller.load_sample_workspace(sample_path)
+        except Exception as exc:
+            self._state = WorkbenchState(
+                sample_path=sample_path,
+                summary_text=f"Static analysis failed: {exc}",
+            )
+        self._sync_ui()
+
     def _search_methods(self, query: str) -> None:
-        if self._controller is None:
-            return
         self._state = self._controller.search_methods(self._state, query)
         self.method_index.set_methods(self._state.visible_methods)
 
     def _add_selected_method(self) -> None:
-        if self._controller is None:
-            return
         method = self.method_index.current_method()
         if method is None:
             return
@@ -120,8 +125,6 @@ class MainWindow(QMainWindow):
         self._sync_ui()
 
     def _run_fake_analysis(self) -> None:
-        if self._controller is None:
-            return
         self._state = self._controller.run_fake_analysis(self._state)
         self._sync_ui()
 

@@ -2,7 +2,10 @@ from pathlib import Path
 
 from PyQt6.QtWidgets import QApplication
 
+from apk_hacker.application.services.job_service import JobService
 from apk_hacker.interfaces.gui_pyqt.main_window import MainWindow
+from apk_hacker.interfaces.gui_pyqt.viewmodels import WorkbenchController
+from apk_hacker.static_engine.analyzer import StaticArtifacts
 
 
 def _app() -> QApplication:
@@ -44,5 +47,79 @@ def test_main_window_runs_demo_hook_workflow(tmp_path: Path) -> None:
     assert window.execution_logs.log_list.count() == 1
     assert "1 event" in window.results_summary.summary_label.text()
 
+    assert app is not None
+    window.close()
+
+
+class _FakeStaticAnalyzer:
+    def __init__(self, artifacts: StaticArtifacts) -> None:
+        self.artifacts = artifacts
+        self.calls: list[tuple[Path, Path | None, str]] = []
+
+    def analyze(self, target_path: Path, output_dir: Path | None = None, mode: str = "auto") -> StaticArtifacts:
+        self.calls.append((target_path, output_dir, mode))
+        return self.artifacts
+
+
+class _FailingStaticAnalyzer:
+    def analyze(self, target_path: Path, output_dir: Path | None = None, mode: str = "auto") -> StaticArtifacts:
+        raise RuntimeError("jadx is unavailable")
+
+
+def test_main_window_runs_real_static_analysis_workflow(tmp_path: Path) -> None:
+    app = _app()
+    sample_path = tmp_path / "sample.apk"
+    sample_path.write_bytes(b"apk")
+    output_root = tmp_path / "artifacts"
+    fixture_root = Path("tests/fixtures/static_outputs").resolve()
+    jadx_sources = Path("tests/fixtures/jadx_sources").resolve()
+    fake_analyzer = _FakeStaticAnalyzer(
+        StaticArtifacts(
+            output_root=output_root,
+            report_dir=output_root / "报告" / "sample",
+            cache_dir=output_root / "cache" / "sample",
+            analysis_json=fixture_root / "sample_analysis.json",
+            callback_config_json=fixture_root / "sample_callback-config.json",
+            noise_log_json=output_root / "cache" / "sample" / "noise-log.json",
+            jadx_sources_dir=jadx_sources,
+            jadx_project_dir=None,
+        )
+    )
+    controller = WorkbenchController(
+        job_service=JobService(static_analyzer=fake_analyzer),
+        scripts_root=tmp_path / "scripts",
+        db_root=tmp_path,
+    )
+    window = MainWindow(controller=controller)
+
+    window.task_center.sample_path_input.setText(str(sample_path))
+    window.task_center.run_analysis_button.click()
+
+    assert window.static_summary.package_value.text() == "com.demo.shell"
+    assert window.task_center.current_sample_value.text() == str(sample_path)
+    assert window.method_index.method_list.count() == 5
+    assert fake_analyzer.calls == [(sample_path, tmp_path / "static-analysis", "auto")]
+    assert app is not None
+    window.close()
+
+
+def test_main_window_surfaces_real_static_analysis_failures(tmp_path: Path) -> None:
+    app = _app()
+    sample_path = tmp_path / "broken.apk"
+    sample_path.write_bytes(b"apk")
+    controller = WorkbenchController(
+        job_service=JobService(static_analyzer=_FailingStaticAnalyzer()),
+        scripts_root=tmp_path / "scripts",
+        db_root=tmp_path,
+    )
+    window = MainWindow(controller=controller)
+
+    window.task_center.sample_path_input.setText(str(sample_path))
+    window.task_center.run_analysis_button.click()
+
+    assert "failed" in window.results_summary.summary_label.text().lower()
+    assert "jadx is unavailable" in window.results_summary.summary_label.text().lower()
+    assert window.task_center.current_sample_value.text() == str(sample_path)
+    assert window.method_index.method_list.count() == 0
     assert app is not None
     window.close()

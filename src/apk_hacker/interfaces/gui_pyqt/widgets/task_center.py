@@ -30,6 +30,8 @@ class TaskCenterWidget(QWidget):
         layout.addWidget(input_box)
 
         actions = QHBoxLayout()
+        self.run_analysis_button = QPushButton("Run Static Analysis")
+        actions.addWidget(self.run_analysis_button)
         self.load_demo_button = QPushButton("Load Demo Workspace")
         actions.addWidget(self.load_demo_button)
         actions.addStretch(1)
@@ -61,3 +63,6 @@ class TaskCenterWidget(QWidget):
 
     def set_demo_available(self, available: bool) -> None:
         self.load_demo_button.setEnabled(available)
+
+    def set_analysis_available(self, available: bool) -> None:
+        self.run_analysis_button.setEnabled(available)

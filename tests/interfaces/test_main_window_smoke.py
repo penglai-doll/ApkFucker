@@ -33,7 +33,8 @@ def test_main_window_disables_demo_loading_without_fixture_sources() -> None:
     window = MainWindow()
 
     assert app is not None
+    assert window.task_center.run_analysis_button.isEnabled()
     assert not window.task_center.load_demo_button.isEnabled()
-    assert "not configured" in window.results_summary.summary_label.text().lower()
+    assert "ready to analyze" in window.results_summary.summary_label.text().lower()
 
     window.close()
