@@ -5,12 +5,13 @@ from pathlib import Path
 from typing import Callable
 
 from PyQt6.QtGui import QAction
-from PyQt6.QtWidgets import QLabel, QListWidget, QMainWindow, QSplitter, QStackedWidget, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QListWidget, QMainWindow, QSplitter, QStackedWidget, QWidget
 
 from apk_hacker.infrastructure.integrations.jadx_launcher import open_in_jadx, resolve_jadx_gui_path
 from apk_hacker.interfaces.gui_pyqt.viewmodels import NavigationPage, WorkbenchController, WorkbenchState
 from apk_hacker.interfaces.gui_pyqt.widgets.custom_scripts import CustomScriptsWidget
 from apk_hacker.interfaces.gui_pyqt.widgets.execution_logs import ExecutionLogsWidget
+from apk_hacker.interfaces.gui_pyqt.widgets.hook_assistant import HookAssistantWidget
 from apk_hacker.interfaces.gui_pyqt.widgets.method_index import MethodIndexWidget
 from apk_hacker.interfaces.gui_pyqt.widgets.results_summary import ResultsSummaryWidget
 from apk_hacker.interfaces.gui_pyqt.widgets.script_plan import ScriptPlanWidget
@@ -60,7 +61,7 @@ class MainWindow(QMainWindow):
         self.task_center = TaskCenterWidget()
         self.static_summary = StaticSummaryWidget()
         self.method_index = MethodIndexWidget()
-        self.hook_assistant = _PlaceholderPage("Hook Assistant")
+        self.hook_assistant = HookAssistantWidget()
         self.script_plan = ScriptPlanWidget()
         self.custom_scripts = CustomScriptsWidget()
         self.execution_logs = ExecutionLogsWidget()
@@ -68,6 +69,8 @@ class MainWindow(QMainWindow):
 
         self.method_index.on_search_requested = self._search_methods
         self.method_index.on_add_selected_requested = self._add_selected_method
+        self.hook_assistant.on_add_selected_requested = self._add_selected_recommendation
+        self.hook_assistant.on_add_top_requested = self._add_top_recommendations
         self.custom_scripts.on_add_selected_requested = self._add_selected_custom_script
         self.custom_scripts.on_save_requested = self._save_custom_script
         self.custom_scripts.on_selection_changed = self._select_custom_script
@@ -140,6 +143,17 @@ class MainWindow(QMainWindow):
         self._state = self._controller.run_analysis(self._state)
         self._sync_ui()
 
+    def _add_selected_recommendation(self) -> None:
+        recommendation = self.hook_assistant.current_recommendation()
+        if recommendation is None:
+            return
+        self._state = self._controller.add_recommendation_to_plan(self._state, recommendation)
+        self._sync_ui()
+
+    def _add_top_recommendations(self) -> None:
+        self._state = self._controller.add_top_recommendations_to_plan(self._state)
+        self._sync_ui()
+
     def _add_selected_custom_script(self) -> None:
         script = self.custom_scripts.current_script()
         if script is None:
@@ -183,6 +197,14 @@ class MainWindow(QMainWindow):
         self.task_center.set_job(self._state.current_job, self._state.sample_path)
         self.static_summary.set_static_inputs(self._state.static_inputs)
         self.method_index.set_methods(self._state.visible_methods, preferred_method=current_method)
+        current_recommendation = self.hook_assistant.current_recommendation()
+        self.hook_assistant.set_context(self._state.static_inputs)
+        self.hook_assistant.set_recommendations(
+            self._state.hook_recommendations,
+            preferred_recommendation_id=(
+                current_recommendation.recommendation_id if current_recommendation is not None else None
+            ),
+        )
         if self.method_index.search_input.text() != self._state.search_query:
             self.method_index.search_input.setText(self._state.search_query)
         self.script_plan.set_plan(self._state.hook_plan)
@@ -210,11 +232,3 @@ class MainWindow(QMainWindow):
             and self._state.sample_path is not None
             and self._state.static_inputs is not None
         )
-
-
-class _PlaceholderPage(QWidget):
-    def __init__(self, title: str) -> None:
-        super().__init__()
-        layout = QVBoxLayout(self)
-        layout.addWidget(QLabel(title))
-        layout.addStretch(1)

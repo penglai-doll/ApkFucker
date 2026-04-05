@@ -8,11 +8,13 @@ from apk_hacker.application.services.custom_script_service import CustomScriptRe
 from apk_hacker.application.services.hook_plan_service import HookPlanService
 from apk_hacker.application.services.job_service import JobService
 from apk_hacker.application.services.static_adapter import StaticAdapter
+from apk_hacker.domain.models.hook_advice import HookRecommendation
 from apk_hacker.domain.models.hook_event import HookEvent
 from apk_hacker.domain.models.hook_plan import HookPlan, HookPlanSource
 from apk_hacker.domain.models.indexes import MethodIndex, MethodIndexEntry
 from apk_hacker.domain.models.job import AnalysisJob
 from apk_hacker.domain.models.static_inputs import StaticInputs
+from apk_hacker.domain.services.hook_advisor import OfflineHookAdvisor
 from apk_hacker.domain.services.hook_search import HookSearch
 from apk_hacker.domain.services.method_indexer import JavaMethodIndexer
 from apk_hacker.infrastructure.execution.backend import ExecutionBackend, ExecutionBackendUnavailable
@@ -42,6 +44,7 @@ class WorkbenchState:
     static_inputs: StaticInputs | None = None
     method_index: MethodIndex = field(default_factory=_empty_method_index)
     visible_methods: tuple[MethodIndexEntry, ...] = ()
+    hook_recommendations: tuple[HookRecommendation, ...] = ()
     selected_sources: tuple[HookPlanSource, ...] = ()
     hook_plan: HookPlan = field(default_factory=_empty_hook_plan)
     hook_events: tuple[HookEvent, ...] = ()
@@ -73,6 +76,7 @@ class WorkbenchController:
         self._job_service = job_service or JobService()
         self._adapter = StaticAdapter()
         self._indexer = JavaMethodIndexer()
+        self._hook_advisor = OfflineHookAdvisor()
         self._search = HookSearch()
         self._hook_plan_service = HookPlanService()
         self._custom_scripts = CustomScriptService(scripts_root)
@@ -110,6 +114,7 @@ class WorkbenchController:
         method_index = self._indexer.build(self._jadx_sources_root)  # type: ignore[arg-type]
         custom_scripts = tuple(self._custom_scripts.discover())
         visible_methods = method_index.methods
+        hook_recommendations = self._hook_advisor.recommend(static_inputs, method_index)
 
         return WorkbenchState(
             sample_path=sample_path,
@@ -117,6 +122,7 @@ class WorkbenchController:
             static_inputs=static_inputs,
             method_index=method_index,
             visible_methods=visible_methods,
+            hook_recommendations=hook_recommendations,
             custom_scripts=custom_scripts,
             custom_script_draft_name=custom_scripts[0].name if custom_scripts else "",
             custom_script_draft_content=self._custom_scripts.read_script(custom_scripts[0]) if custom_scripts else "",
@@ -130,12 +136,14 @@ class WorkbenchController:
             output_dir=self._analysis_output_root,
         )
         custom_scripts = tuple(self._custom_scripts.discover())
+        hook_recommendations = self._hook_advisor.recommend(static_inputs, method_index)
         return WorkbenchState(
             sample_path=sample_path,
             current_job=job,
             static_inputs=static_inputs,
             method_index=method_index,
             visible_methods=method_index.methods,
+            hook_recommendations=hook_recommendations,
             custom_scripts=custom_scripts,
             custom_script_draft_name=custom_scripts[0].name if custom_scripts else "",
             custom_script_draft_content=self._custom_scripts.read_script(custom_scripts[0]) if custom_scripts else "",
@@ -164,6 +172,28 @@ class WorkbenchController:
             selected_sources=selected_sources,
             hook_plan=hook_plan,
             summary_text=f"Prepared {len(hook_plan.items)} planned hook item(s).",
+        )
+
+    def add_recommendation_to_plan(self, state: WorkbenchState, recommendation: HookRecommendation) -> WorkbenchState:
+        if recommendation.method is None:
+            return replace(state, summary_text="The selected recommendation is advisory only.")
+        return self.add_method_to_plan(state, recommendation.method)
+
+    def add_top_recommendations_to_plan(self, state: WorkbenchState, limit: int = 3) -> WorkbenchState:
+        next_state = state
+        added = 0
+        for recommendation in state.hook_recommendations[:limit]:
+            if recommendation.method is None:
+                continue
+            before = len(next_state.selected_sources)
+            next_state = self.add_method_to_plan(next_state, recommendation.method)
+            if len(next_state.selected_sources) > before:
+                added += 1
+        if added == 0:
+            return replace(next_state, summary_text="No new recommendations were added to the plan.")
+        return replace(
+            next_state,
+            summary_text=f"Added {added} recommended hook(s) to the plan.",
         )
 
     def add_custom_script_to_plan(self, state: WorkbenchState, script: CustomScriptRecord) -> WorkbenchState:

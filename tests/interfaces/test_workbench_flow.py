@@ -124,6 +124,47 @@ def test_main_window_runs_real_static_analysis_workflow(tmp_path: Path) -> None:
     window.close()
 
 
+def test_main_window_shows_hook_assistant_recommendations_and_adds_selected_item(tmp_path: Path) -> None:
+    app = _app()
+    sample_path = tmp_path / "sample.apk"
+    sample_path.write_bytes(b"apk")
+    output_root = tmp_path / "artifacts"
+    fixture_root = Path("tests/fixtures/static_outputs").resolve()
+    jadx_sources = Path("tests/fixtures/jadx_sources").resolve()
+    fake_analyzer = _FakeStaticAnalyzer(
+        StaticArtifacts(
+            output_root=output_root,
+            report_dir=output_root / "报告" / "sample",
+            cache_dir=output_root / "cache" / "sample",
+            analysis_json=fixture_root / "sample_analysis.json",
+            callback_config_json=fixture_root / "sample_callback-config.json",
+            noise_log_json=output_root / "cache" / "sample" / "noise-log.json",
+            jadx_sources_dir=jadx_sources,
+            jadx_project_dir=None,
+        )
+    )
+    controller = WorkbenchController(
+        job_service=JobService(static_analyzer=fake_analyzer),
+        scripts_root=tmp_path / "scripts",
+        db_root=tmp_path,
+    )
+    window = MainWindow(controller=controller)
+
+    window.task_center.sample_path_input.setText(str(sample_path))
+    window.task_center.run_analysis_button.click()
+
+    assert window.hook_assistant.recommendation_list.count() >= 1
+    assert "buildUploadUrl" in window.hook_assistant.recommendation_list.item(0).text()
+
+    window.hook_assistant.recommendation_list.setCurrentRow(0)
+    window.hook_assistant.add_selected_button.click()
+
+    assert window.script_plan.plan_list.count() == 1
+    assert "buildUploadUrl" in window.script_plan.plan_list.item(0).text()
+    assert app is not None
+    window.close()
+
+
 def test_main_window_surfaces_real_static_analysis_failures(tmp_path: Path) -> None:
     app = _app()
     sample_path = tmp_path / "broken.apk"
