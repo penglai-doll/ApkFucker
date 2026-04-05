@@ -20,13 +20,16 @@
 - GUI 启动与基本工作流
 - 真实静态分析入口
 - 方法级 Hook 计划
+- 离线 Hook Assistant / 模板建议
+- 离线 HAR 导入与可疑流量标记
 - 自定义 Frida 脚本编辑与加入计划
 - `Fake Backend / Real Device` 执行模式切换
+- 脚本真实渲染与预览
 - `Open in JADX`
 
 当前未完成：
 
-- 真实 ADB / Frida 设备执行
+- 原生 ADB / Frida 一体化设备执行
 - 抓包、SSL Unpinning、脱壳
 - AI 代码分析、AI 流量分析
 - FastAPI/Tauri 前端层
@@ -99,8 +102,28 @@ uv run apk-hacker --help
   - 当前默认模式
   - 用于验证计划、脚本、日志存储和 GUI 交互
 - `Real Device`
-  - 目前只有骨架
-  - 如果没有注入真实后端，会明确提示未配置
+  - 目前是“命令型真实后端”骨架
+  - 可以通过环境变量 `APKHACKER_REAL_BACKEND_COMMAND` 指向你自己的执行器脚本
+  - 后端会把当前计划和已渲染的脚本写入临时目录，再把路径通过环境变量传给执行器：
+    - `APKHACKER_JOB_ID`
+    - `APKHACKER_PLAN_PATH`
+    - `APKHACKER_SCRIPTS_DIR`
+    - `APKHACKER_WORKDIR`
+  - 执行器向标准输出打印 JSON 行后，工作台会把它解析成真实事件
+
+一个最简单的外部执行器可以是：
+
+```bash
+export APKHACKER_REAL_BACKEND_COMMAND="python /path/to/runner.py"
+uv run apk-hacker
+```
+
+仓库里也自带了一个演示执行器，方便本地先验证真实后端协议：
+
+```bash
+export APKHACKER_REAL_BACKEND_COMMAND="uv run apk-hacker-demo-real-backend"
+uv run apk-hacker
+```
 
 ## 目录说明
 

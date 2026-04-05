@@ -20,6 +20,7 @@ dev = [
 
 [project.scripts]
 apk-hacker = "apk_hacker.interfaces.gui_pyqt.main:main"
+apk-hacker-demo-real-backend = "apk_hacker.tools.demo_real_backend:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
