@@ -51,6 +51,16 @@ def test_custom_script_service_discovers_local_frida_scripts(tmp_path: Path) -> 
     assert [item.name for item in result] == ["trace_login"]
 
 
+def test_custom_script_service_saves_and_reads_local_frida_script(tmp_path: Path) -> None:
+    service = CustomScriptService(tmp_path)
+
+    record = service.save_script("trace_login", "send('trace');\n")
+
+    assert record.name == "trace_login"
+    assert record.script_path.read_text(encoding="utf-8") == "send('trace');\n"
+    assert service.read_script(record) == "send('trace');\n"
+
+
 def test_hook_plan_service_combines_methods_and_custom_scripts(tmp_path: Path) -> None:
     script_path = tmp_path / "trace_login.js"
     script_path.write_text("send('trace');\n", encoding="utf-8")

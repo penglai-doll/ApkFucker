@@ -69,6 +69,8 @@ class MainWindow(QMainWindow):
         self.method_index.on_search_requested = self._search_methods
         self.method_index.on_add_selected_requested = self._add_selected_method
         self.custom_scripts.on_add_selected_requested = self._add_selected_custom_script
+        self.custom_scripts.on_save_requested = self._save_custom_script
+        self.custom_scripts.on_selection_changed = self._select_custom_script
         self.script_plan.on_execution_mode_changed = self._change_execution_mode
         self.script_plan.on_run_requested = self._run_analysis
         self.task_center.run_analysis_button.clicked.connect(self._load_sample_workspace)
@@ -145,6 +147,21 @@ class MainWindow(QMainWindow):
         self._state = self._controller.add_custom_script_to_plan(self._state, script)
         self._sync_ui()
 
+    def _save_custom_script(self) -> None:
+        self._state = self._controller.save_custom_script(
+            self._state,
+            self.custom_scripts.draft_name(),
+            self.custom_scripts.draft_content(),
+        )
+        self._sync_ui()
+
+    def _select_custom_script(self) -> None:
+        self._state = self._controller.select_custom_script(
+            self._state,
+            self.custom_scripts.current_script(),
+        )
+        self._sync_ui()
+
     def _change_execution_mode(self, mode: str) -> None:
         self._state = self._controller.set_execution_mode(self._state, mode)
 
@@ -170,7 +187,18 @@ class MainWindow(QMainWindow):
             self.method_index.search_input.setText(self._state.search_query)
         self.script_plan.set_plan(self._state.hook_plan)
         self.script_plan.set_execution_mode(self._state.execution_mode)
-        self.custom_scripts.set_scripts(self._state.custom_scripts)
+        self.custom_scripts.set_scripts(
+            self._state.custom_scripts,
+            preferred_script_path=(
+                str(self._state.selected_custom_script_path)
+                if self._state.selected_custom_script_path is not None
+                else None
+            ),
+        )
+        self.custom_scripts.set_draft(
+            self._state.custom_script_draft_name,
+            self._state.custom_script_draft_content,
+        )
         self.execution_logs.set_events(self._state.hook_events)
         self.results_summary.set_summary(self._state.summary_text)
         self.open_jadx_action.setEnabled(self._can_open_in_jadx())

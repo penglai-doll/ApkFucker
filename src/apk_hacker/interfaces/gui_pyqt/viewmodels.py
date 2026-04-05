@@ -45,6 +45,9 @@ class WorkbenchState:
     hook_events: tuple[HookEvent, ...] = ()
     custom_scripts: tuple[CustomScriptRecord, ...] = ()
     execution_mode: str = "fake_backend"
+    selected_custom_script_path: Path | None = None
+    custom_script_draft_name: str = ""
+    custom_script_draft_content: str = ""
     search_query: str = ""
     run_count: int = 0
     summary_text: str = "No analysis run yet."
@@ -107,6 +110,9 @@ class WorkbenchController:
             method_index=method_index,
             visible_methods=visible_methods,
             custom_scripts=custom_scripts,
+            custom_script_draft_name=custom_scripts[0].name if custom_scripts else "",
+            custom_script_draft_content=self._custom_scripts.read_script(custom_scripts[0]) if custom_scripts else "",
+            selected_custom_script_path=custom_scripts[0].script_path if custom_scripts else None,
             summary_text=f"Loaded demo workspace for {sample_path.name}.",
         )
 
@@ -123,6 +129,9 @@ class WorkbenchController:
             method_index=method_index,
             visible_methods=method_index.methods,
             custom_scripts=custom_scripts,
+            custom_script_draft_name=custom_scripts[0].name if custom_scripts else "",
+            custom_script_draft_content=self._custom_scripts.read_script(custom_scripts[0]) if custom_scripts else "",
+            selected_custom_script_path=custom_scripts[0].script_path if custom_scripts else None,
             summary_text=f"Static analysis finished for {sample_path.name}.",
         )
 
@@ -164,6 +173,38 @@ class WorkbenchController:
             selected_sources=selected_sources,
             hook_plan=hook_plan,
             summary_text=f"Prepared {len(hook_plan.items)} planned hook item(s).",
+        )
+
+    def select_custom_script(self, state: WorkbenchState, script: CustomScriptRecord | None) -> WorkbenchState:
+        if script is None:
+            return replace(
+                state,
+                selected_custom_script_path=None,
+                custom_script_draft_name="",
+                custom_script_draft_content="",
+            )
+
+        return replace(
+            state,
+            selected_custom_script_path=script.script_path,
+            custom_script_draft_name=script.name,
+            custom_script_draft_content=self._custom_scripts.read_script(script),
+        )
+
+    def save_custom_script(self, state: WorkbenchState, name: str, content: str) -> WorkbenchState:
+        try:
+            record = self._custom_scripts.save_script(name, content)
+        except (OSError, ValueError) as exc:
+            return replace(state, summary_text=f"Failed to save custom script: {exc}")
+
+        custom_scripts = tuple(self._custom_scripts.discover())
+        return replace(
+            state,
+            custom_scripts=custom_scripts,
+            selected_custom_script_path=record.script_path,
+            custom_script_draft_name=record.name,
+            custom_script_draft_content=content,
+            summary_text=f"Saved custom script {record.name}.",
         )
 
     def set_execution_mode(self, state: WorkbenchState, mode: str) -> WorkbenchState:
