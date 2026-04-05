@@ -9,7 +9,7 @@ from apk_hacker.application.services.hook_plan_service import HookPlanService
 from apk_hacker.application.services.job_service import JobService
 from apk_hacker.application.services.static_adapter import StaticAdapter
 from apk_hacker.domain.models.hook_event import HookEvent
-from apk_hacker.domain.models.hook_plan import HookPlan
+from apk_hacker.domain.models.hook_plan import HookPlan, HookPlanSource
 from apk_hacker.domain.models.indexes import MethodIndex, MethodIndexEntry
 from apk_hacker.domain.models.job import AnalysisJob
 from apk_hacker.domain.models.static_inputs import StaticInputs
@@ -40,11 +40,11 @@ class WorkbenchState:
     static_inputs: StaticInputs | None = None
     method_index: MethodIndex = field(default_factory=_empty_method_index)
     visible_methods: tuple[MethodIndexEntry, ...] = ()
-    selected_methods: tuple[MethodIndexEntry, ...] = ()
+    selected_sources: tuple[HookPlanSource, ...] = ()
     hook_plan: HookPlan = field(default_factory=_empty_hook_plan)
     hook_events: tuple[HookEvent, ...] = ()
     custom_scripts: tuple[CustomScriptRecord, ...] = ()
-    selected_custom_scripts: tuple[CustomScriptRecord, ...] = ()
+    execution_mode: str = "fake_backend"
     search_query: str = ""
     run_count: int = 0
     summary_text: str = "No analysis run yet."
@@ -136,39 +136,51 @@ class WorkbenchController:
         )
 
     def add_method_to_plan(self, state: WorkbenchState, method: MethodIndexEntry) -> WorkbenchState:
-        if any(self._same_method(existing, method) for existing in state.selected_methods):
+        source = HookPlanSource.from_method(method)
+        if any(existing.source_id == source.source_id for existing in state.selected_sources):
             return state
 
-        selected_methods = (*state.selected_methods, method)
-        hook_plan = self._hook_plan_service.plan_for_selection(
-            list(selected_methods),
-            list(state.selected_custom_scripts),
-        )
+        selected_sources = (*state.selected_sources, source)
+        hook_plan = self._hook_plan_service.plan_for_sources(list(selected_sources))
         return replace(
             state,
-            selected_methods=selected_methods,
+            selected_sources=selected_sources,
             hook_plan=hook_plan,
             summary_text=f"Prepared {len(hook_plan.items)} planned hook item(s).",
         )
 
     def add_custom_script_to_plan(self, state: WorkbenchState, script: CustomScriptRecord) -> WorkbenchState:
-        if any(existing.script_path == script.script_path for existing in state.selected_custom_scripts):
+        source = HookPlanSource.from_custom_script(script.name, str(script.script_path))
+        if any(existing.source_id == source.source_id for existing in state.selected_sources):
             return replace(
                 state,
                 summary_text=f"Custom script {script.name} is already in the hook plan.",
             )
 
-        selected_custom_scripts = (*state.selected_custom_scripts, script)
-        hook_plan = self._hook_plan_service.plan_for_selection(
-            list(state.selected_methods),
-            list(selected_custom_scripts),
-        )
+        selected_sources = (*state.selected_sources, source)
+        hook_plan = self._hook_plan_service.plan_for_sources(list(selected_sources))
         return replace(
             state,
-            selected_custom_scripts=selected_custom_scripts,
+            selected_sources=selected_sources,
             hook_plan=hook_plan,
             summary_text=f"Prepared {len(hook_plan.items)} planned hook item(s).",
         )
+
+    def set_execution_mode(self, state: WorkbenchState, mode: str) -> WorkbenchState:
+        return replace(state, execution_mode=mode)
+
+    def run_analysis(self, state: WorkbenchState) -> WorkbenchState:
+        if state.current_job is None:
+            return replace(state, summary_text="Load a workspace before running analysis.")
+        if not state.hook_plan.items:
+            return replace(state, summary_text="Add at least one hook plan item first.")
+        if state.execution_mode == "real_device":
+            return replace(
+                state,
+                hook_events=(),
+                summary_text="Real device execution is not available in this build yet.",
+            )
+        return self.run_fake_analysis(state)
 
     def run_fake_analysis(self, state: WorkbenchState) -> WorkbenchState:
         if state.current_job is None:
@@ -188,13 +200,4 @@ class WorkbenchController:
             hook_events=rows,
             run_count=run_count,
             summary_text=f"Captured {len(rows)} event(s) from {len(state.hook_plan.items)} planned hook(s).",
-        )
-
-    @staticmethod
-    def _same_method(left: MethodIndexEntry, right: MethodIndexEntry) -> bool:
-        return (
-            left.class_name == right.class_name
-            and left.method_name == right.method_name
-            and left.parameter_types == right.parameter_types
-            and left.source_path == right.source_path
         )

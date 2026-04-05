@@ -2,9 +2,8 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from apk_hacker.application.services.custom_script_service import CustomScriptRecord
 from apk_hacker.application.plugins.builtin.method_hook import MethodHookPlugin
-from apk_hacker.domain.models.hook_plan import HookPlan, HookPlanItem, MethodHookTarget
+from apk_hacker.domain.models.hook_plan import HookPlan, HookPlanItem, HookPlanSource, MethodHookTarget
 from apk_hacker.domain.models.indexes import MethodIndexEntry
 
 
@@ -13,18 +12,23 @@ class HookPlanService:
         self._method_hook = MethodHookPlugin()
 
     def plan_for_methods(self, methods: list[MethodIndexEntry]) -> HookPlan:
-        return self.plan_for_selection(methods, [])
+        return self.plan_for_sources([HookPlanSource.from_method(method) for method in methods])
 
-    def plan_for_selection(
-        self,
-        methods: list[MethodIndexEntry],
-        custom_scripts: list[CustomScriptRecord],
-    ) -> HookPlan:
+    def plan_for_sources(self, sources: list[HookPlanSource]) -> HookPlan:
         items: list[HookPlanItem] = []
-        for inject_order, method in enumerate(methods, start=1):
-            items.append(self._build_method_item(method, inject_order))
-        for offset, script in enumerate(custom_scripts, start=len(items) + 1):
-            items.append(self._build_custom_script_item(script, offset))
+        for inject_order, source in enumerate(sources, start=1):
+            if source.method is not None:
+                items.append(self._build_method_item(source.method, inject_order))
+                continue
+            if source.kind != "custom_script" or source.script_name is None or source.script_path is None:
+                continue
+            items.append(
+                self._build_custom_script_item(
+                    script_name=source.script_name,
+                    script_path=source.script_path,
+                    inject_order=inject_order,
+                )
+            )
         return HookPlan(items=tuple(items))
 
     def _build_method_item(self, method: MethodIndexEntry, inject_order: int) -> HookPlanItem:
@@ -52,7 +56,7 @@ class HookPlanService:
         )
 
     @staticmethod
-    def _build_custom_script_item(record: CustomScriptRecord, inject_order: int) -> HookPlanItem:
+    def _build_custom_script_item(script_name: str, script_path: str, inject_order: int) -> HookPlanItem:
         return HookPlanItem(
             item_id=str(uuid4()),
             kind="custom_script",
@@ -60,8 +64,8 @@ class HookPlanService:
             inject_order=inject_order,
             target=None,
             render_context={
-                "script_name": record.name,
-                "script_path": str(record.script_path),
+                "script_name": script_name,
+                "script_path": script_path,
             },
             plugin_id="custom.local-script",
         )

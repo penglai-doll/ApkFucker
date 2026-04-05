@@ -11,7 +11,7 @@ class FakeExecutionBackend(ExecutionBackend):
     def execute(self, job_id: str, plan: HookPlan) -> tuple[HookEvent, ...]:
         events: list[HookEvent] = []
 
-        for item in plan.items:
+        for item in sorted(plan.items, key=lambda plan_item: plan_item.inject_order):
             if not item.enabled:
                 continue
 

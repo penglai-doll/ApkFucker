@@ -264,3 +264,91 @@ def test_main_window_adds_custom_script_to_plan_and_runs_fake_analysis(tmp_path:
     assert "1 event" in window.results_summary.summary_label.text()
     assert app is not None
     window.close()
+
+
+def test_main_window_preserves_custom_script_order_before_method_hooks(tmp_path: Path) -> None:
+    app = _app()
+    sample_path = tmp_path / "sample.apk"
+    sample_path.write_bytes(b"apk")
+    output_root = tmp_path / "artifacts"
+    scripts_root = tmp_path / "scripts"
+    scripts_root.mkdir()
+    (scripts_root / "trace_login.js").write_text("send('trace');\n", encoding="utf-8")
+    fixture_root = Path("tests/fixtures/static_outputs").resolve()
+    jadx_sources = Path("tests/fixtures/jadx_sources").resolve()
+    fake_analyzer = _FakeStaticAnalyzer(
+        StaticArtifacts(
+            output_root=output_root,
+            report_dir=output_root / "报告" / "sample",
+            cache_dir=output_root / "cache" / "sample",
+            analysis_json=fixture_root / "sample_analysis.json",
+            callback_config_json=fixture_root / "sample_callback-config.json",
+            noise_log_json=output_root / "cache" / "sample" / "noise-log.json",
+            jadx_sources_dir=jadx_sources,
+            jadx_project_dir=None,
+        )
+    )
+    controller = WorkbenchController(
+        job_service=JobService(static_analyzer=fake_analyzer),
+        scripts_root=scripts_root,
+        db_root=tmp_path,
+    )
+    window = MainWindow(controller=controller)
+
+    window.task_center.sample_path_input.setText(str(sample_path))
+    window.task_center.run_analysis_button.click()
+    window.custom_scripts.script_list.setCurrentRow(0)
+    window.custom_scripts.add_selected_button.click()
+    window.method_index.search_input.setText("buildUploadUrl")
+    window.method_index.apply_search()
+    window.method_index.method_list.setCurrentRow(0)
+    window.method_index.add_selected_button.click()
+
+    assert "trace_login" in window.script_plan.plan_list.item(0).text()
+    assert "buildUploadUrl" in window.script_plan.plan_list.item(1).text()
+
+    window.script_plan.run_fake_button.click()
+
+    assert "trace_login" in window.execution_logs.log_list.item(0).text()
+    assert "buildUploadUrl" in window.execution_logs.log_list.item(1).text()
+    assert app is not None
+    window.close()
+
+
+def test_main_window_surfaces_unavailable_real_execution_mode(tmp_path: Path) -> None:
+    app = _app()
+    sample_path = tmp_path / "sample.apk"
+    sample_path.write_bytes(b"apk")
+    output_root = tmp_path / "artifacts"
+    fixture_root = Path("tests/fixtures/static_outputs").resolve()
+    jadx_sources = Path("tests/fixtures/jadx_sources").resolve()
+    fake_analyzer = _FakeStaticAnalyzer(
+        StaticArtifacts(
+            output_root=output_root,
+            report_dir=output_root / "报告" / "sample",
+            cache_dir=output_root / "cache" / "sample",
+            analysis_json=fixture_root / "sample_analysis.json",
+            callback_config_json=fixture_root / "sample_callback-config.json",
+            noise_log_json=output_root / "cache" / "sample" / "noise-log.json",
+            jadx_sources_dir=jadx_sources,
+            jadx_project_dir=None,
+        )
+    )
+    controller = WorkbenchController(
+        job_service=JobService(static_analyzer=fake_analyzer),
+        scripts_root=tmp_path / "scripts",
+        db_root=tmp_path,
+    )
+    window = MainWindow(controller=controller)
+
+    window.task_center.sample_path_input.setText(str(sample_path))
+    window.task_center.run_analysis_button.click()
+    window.method_index.method_list.setCurrentRow(0)
+    window.method_index.add_selected_button.click()
+    window.script_plan.execution_mode_combo.setCurrentText("Real Device")
+    window.script_plan.run_fake_button.click()
+
+    assert "real device execution is not available" in window.results_summary.summary_label.text().lower()
+    assert window.execution_logs.log_list.count() == 0
+    assert app is not None
+    window.close()

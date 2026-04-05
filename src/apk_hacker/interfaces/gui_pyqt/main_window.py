@@ -69,7 +69,8 @@ class MainWindow(QMainWindow):
         self.method_index.on_search_requested = self._search_methods
         self.method_index.on_add_selected_requested = self._add_selected_method
         self.custom_scripts.on_add_selected_requested = self._add_selected_custom_script
-        self.script_plan.on_run_requested = self._run_fake_analysis
+        self.script_plan.on_execution_mode_changed = self._change_execution_mode
+        self.script_plan.on_run_requested = self._run_analysis
         self.task_center.run_analysis_button.clicked.connect(self._load_sample_workspace)
         self.task_center.load_demo_button.clicked.connect(self._load_demo_workspace)
         self.task_center.set_analysis_available(True)
@@ -133,8 +134,8 @@ class MainWindow(QMainWindow):
         self._state = self._controller.add_method_to_plan(self._state, method)
         self._sync_ui()
 
-    def _run_fake_analysis(self) -> None:
-        self._state = self._controller.run_fake_analysis(self._state)
+    def _run_analysis(self) -> None:
+        self._state = self._controller.run_analysis(self._state)
         self._sync_ui()
 
     def _add_selected_custom_script(self) -> None:
@@ -143,6 +144,9 @@ class MainWindow(QMainWindow):
             return
         self._state = self._controller.add_custom_script_to_plan(self._state, script)
         self._sync_ui()
+
+    def _change_execution_mode(self, mode: str) -> None:
+        self._state = self._controller.set_execution_mode(self._state, mode)
 
     def _open_in_jadx(self) -> None:
         if not self._can_open_in_jadx():
@@ -165,6 +169,7 @@ class MainWindow(QMainWindow):
         if self.method_index.search_input.text() != self._state.search_query:
             self.method_index.search_input.setText(self._state.search_query)
         self.script_plan.set_plan(self._state.hook_plan)
+        self.script_plan.set_execution_mode(self._state.execution_mode)
         self.custom_scripts.set_scripts(self._state.custom_scripts)
         self.execution_logs.set_events(self._state.hook_events)
         self.results_summary.set_summary(self._state.summary_text)

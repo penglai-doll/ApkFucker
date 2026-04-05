@@ -90,3 +90,44 @@ def test_fake_backend_emits_custom_script_events() -> None:
     assert events[0].event_type == "script_loaded"
     assert events[0].class_name == "custom.script"
     assert events[0].method_name == "trace_login"
+
+
+def test_fake_backend_respects_inject_order_when_plan_items_are_unsorted() -> None:
+    target = MethodHookTarget(
+        target_id="target-1",
+        class_name="com.demo.net.Config",
+        method_name="buildUploadUrl",
+        parameter_types=("String",),
+        return_type="String",
+        source_origin="method_index",
+    )
+    plan = HookPlan(
+        items=(
+            HookPlanItem(
+                item_id="item-2",
+                kind="method_hook",
+                enabled=True,
+                inject_order=2,
+                target=target,
+                render_context={},
+                plugin_id="builtin.method-hook",
+            ),
+            HookPlanItem(
+                item_id="item-1",
+                kind="custom_script",
+                enabled=True,
+                inject_order=1,
+                target=None,
+                render_context={
+                    "script_name": "trace_login",
+                    "script_path": "/tmp/trace_login.js",
+                },
+                plugin_id="custom.local-script",
+            ),
+        )
+    )
+
+    events = FakeExecutionBackend().execute("job-1", plan)
+
+    assert [event.event_type for event in events] == ["script_loaded", "method_call"]
+    assert [event.method_name for event in events] == ["trace_login", "buildUploadUrl"]

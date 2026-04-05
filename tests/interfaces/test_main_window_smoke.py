@@ -24,6 +24,7 @@ def test_main_window_has_expected_navigation() -> None:
     ]
     assert window.open_jadx_action.text() == "Open in JADX"
     assert not window.open_jadx_action.isEnabled()
+    assert window.script_plan.execution_mode_combo.currentText() == "Fake Backend"
     assert window.content_stack.count() == len(labels)
     assert app is not None
     window.close()
