@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
 )
 
 from apk_hacker.domain.models.job import AnalysisJob
+from apk_hacker.domain.models.environment import EnvironmentSnapshot
 
 
 class TaskCenterWidget(QWidget):
@@ -46,6 +47,17 @@ class TaskCenterWidget(QWidget):
         job_layout.addRow("Status", self.status_value)
         job_layout.addRow("Loaded Sample", self.current_sample_value)
         layout.addWidget(job_box)
+
+        environment_box = QGroupBox("Environment")
+        environment_layout = QFormLayout(environment_box)
+        self.environment_summary_value = QLabel("Not checked yet")
+        self.environment_details_value = QLabel("-")
+        self.environment_details_value.setWordWrap(True)
+        self.refresh_environment_button = QPushButton("Refresh Environment")
+        environment_layout.addRow("Summary", self.environment_summary_value)
+        environment_layout.addRow("Tools", self.environment_details_value)
+        environment_layout.addRow("", self.refresh_environment_button)
+        layout.addWidget(environment_box)
         layout.addStretch(1)
 
     def selected_sample_path(self) -> Path:
@@ -66,3 +78,16 @@ class TaskCenterWidget(QWidget):
 
     def set_analysis_available(self, available: bool) -> None:
         self.run_analysis_button.setEnabled(available)
+
+    def set_environment(self, snapshot: EnvironmentSnapshot | None) -> None:
+        if snapshot is None:
+            self.environment_summary_value.setText("Not checked yet")
+            self.environment_details_value.setText("-")
+            return
+
+        self.environment_summary_value.setText(snapshot.summary)
+        detail_lines = []
+        for tool in snapshot.tools:
+            value = tool.path if tool.available and tool.path is not None else "missing"
+            detail_lines.append(f"{tool.label}: {value}")
+        self.environment_details_value.setText("\n".join(detail_lines))

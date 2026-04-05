@@ -51,6 +51,7 @@ class MainWindow(QMainWindow):
         self._state = WorkbenchState(
             summary_text="Ready to analyze a sample." if not demo_available else "No analysis run yet."
         )
+        self._state = self._controller.refresh_environment(self._state, announce=False)
 
         self.open_jadx_action = QAction("Open in JADX", self)
         self.menuBar().addAction(self.open_jadx_action)
@@ -81,6 +82,7 @@ class MainWindow(QMainWindow):
         self.traffic_capture.on_load_requested = self._load_traffic_capture
         self.task_center.run_analysis_button.clicked.connect(self._load_sample_workspace)
         self.task_center.load_demo_button.clicked.connect(self._load_demo_workspace)
+        self.task_center.refresh_environment_button.clicked.connect(self._refresh_environment)
         self.task_center.set_analysis_available(True)
         self.task_center.set_demo_available(demo_available)
 
@@ -130,6 +132,10 @@ class MainWindow(QMainWindow):
                 sample_path=sample_path,
                 summary_text=f"Static analysis failed: {exc}",
             )
+        self._sync_ui()
+
+    def _refresh_environment(self) -> None:
+        self._state = self._controller.refresh_environment(self._state)
         self._sync_ui()
 
     def _search_methods(self, query: str) -> None:
@@ -204,6 +210,7 @@ class MainWindow(QMainWindow):
     def _sync_ui(self) -> None:
         current_method = self.method_index.current_method()
         self.task_center.set_job(self._state.current_job, self._state.sample_path)
+        self.task_center.set_environment(self._state.environment_snapshot)
         self.static_summary.set_static_inputs(self._state.static_inputs)
         self.method_index.set_methods(self._state.visible_methods, preferred_method=current_method)
         current_recommendation = self.hook_assistant.current_recommendation()

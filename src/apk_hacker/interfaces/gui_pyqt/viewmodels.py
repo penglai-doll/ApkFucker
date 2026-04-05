@@ -5,10 +5,12 @@ from pathlib import Path
 import json
 
 from apk_hacker.application.services.custom_script_service import CustomScriptRecord, CustomScriptService
+from apk_hacker.application.services.environment_service import EnvironmentService
 from apk_hacker.application.services.hook_plan_service import HookPlanService
 from apk_hacker.application.services.job_service import JobService
 from apk_hacker.application.services.static_adapter import StaticAdapter
 from apk_hacker.domain.models.hook_advice import HookRecommendation
+from apk_hacker.domain.models.environment import EnvironmentSnapshot
 from apk_hacker.domain.models.hook_event import HookEvent
 from apk_hacker.domain.models.hook_plan import HookPlan, HookPlanSource
 from apk_hacker.domain.models.indexes import MethodIndex, MethodIndexEntry
@@ -51,6 +53,7 @@ class WorkbenchState:
     hook_plan: HookPlan = field(default_factory=_empty_hook_plan)
     hook_events: tuple[HookEvent, ...] = ()
     traffic_capture: TrafficCapture | None = None
+    environment_snapshot: EnvironmentSnapshot | None = None
     custom_scripts: tuple[CustomScriptRecord, ...] = ()
     execution_mode: str = "fake_backend"
     selected_custom_script_path: Path | None = None
@@ -67,6 +70,7 @@ class WorkbenchController:
         scripts_root: Path,
         db_root: Path,
         job_service: JobService | None = None,
+        environment_service: EnvironmentService | None = None,
         fixture_root: Path | None = None,
         jadx_sources_root: Path | None = None,
         execution_backends: dict[str, ExecutionBackend] | None = None,
@@ -77,6 +81,7 @@ class WorkbenchController:
         self._db_root = db_root
         self._analysis_output_root = db_root / "static-analysis"
         self._job_service = job_service or JobService()
+        self._environment_service = environment_service or EnvironmentService()
         self._adapter = StaticAdapter()
         self._indexer = JavaMethodIndexer()
         self._hook_advisor = OfflineHookAdvisor()
@@ -94,6 +99,16 @@ class WorkbenchController:
     @property
     def demo_available(self) -> bool:
         return self._fixture_root is not None and self._jadx_sources_root is not None
+
+    def refresh_environment(self, state: WorkbenchState, announce: bool = True) -> WorkbenchState:
+        snapshot = self._environment_service.inspect()
+        if not announce:
+            return replace(state, environment_snapshot=snapshot)
+        return replace(
+            state,
+            environment_snapshot=snapshot,
+            summary_text=f"Environment refreshed: {snapshot.summary}.",
+        )
 
     def load_demo_workspace(self, sample_path: Path) -> WorkbenchState:
         if not self.demo_available:
