@@ -40,6 +40,8 @@ def test_hook_plan_service_turns_method_selection_into_plan_item() -> None:
     assert result.items[0].plugin_id == "builtin.method-hook"
     assert result.items[0].render_context["methodName"] == "buildUploadUrl"
     assert result.items[0].render_context["paramTypes"] == ["String"]
+    assert "rendered_script" in result.items[0].render_context
+    assert "buildUploadUrl" in str(result.items[0].render_context["rendered_script"])
 
 
 def test_custom_script_service_discovers_local_frida_scripts(tmp_path: Path) -> None:
@@ -89,6 +91,7 @@ def test_hook_plan_service_combines_methods_and_custom_scripts(tmp_path: Path) -
     assert result.items[0].render_context == {
         "script_name": "trace_login",
         "script_path": str(script_path),
+        "rendered_script": "send('trace');\n",
     }
 
 
@@ -111,4 +114,6 @@ def test_hook_plan_service_builds_template_hook_items() -> None:
     assert result.items[0].render_context == {
         "template_id": "ssl.okhttp3_unpin",
         "template_name": "OkHttp3 SSL Unpinning",
+        "rendered_script": str(result.items[0].render_context["rendered_script"]),
     }
+    assert "OkHttp3 SSL unpinning template loaded" in str(result.items[0].render_context["rendered_script"])

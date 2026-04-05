@@ -5,11 +5,13 @@ from uuid import uuid4
 from apk_hacker.application.plugins.builtin.method_hook import MethodHookPlugin
 from apk_hacker.domain.models.hook_plan import HookPlan, HookPlanItem, HookPlanSource, MethodHookTarget
 from apk_hacker.domain.models.indexes import MethodIndexEntry
+from apk_hacker.infrastructure.templates.script_renderer import ScriptRenderer
 
 
 class HookPlanService:
-    def __init__(self) -> None:
+    def __init__(self, renderer: ScriptRenderer | None = None) -> None:
         self._method_hook = MethodHookPlugin()
+        self._renderer = renderer or ScriptRenderer()
 
     def plan_for_methods(self, methods: list[MethodIndexEntry]) -> HookPlan:
         return self.plan_for_sources([HookPlanSource.from_method(method) for method in methods])
@@ -39,7 +41,7 @@ class HookPlanService:
                     inject_order=inject_order,
                 )
             )
-        return HookPlan(items=tuple(items))
+        return self._renderer.render_plan(HookPlan(items=tuple(items)))
 
     def _build_method_item(self, method: MethodIndexEntry, inject_order: int) -> HookPlanItem:
         script = self._method_hook.build(

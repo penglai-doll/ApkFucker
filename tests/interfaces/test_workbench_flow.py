@@ -161,6 +161,7 @@ def test_main_window_shows_hook_assistant_recommendations_and_adds_selected_item
 
     assert window.script_plan.plan_list.count() == 1
     assert "buildUploadUrl" in window.script_plan.plan_list.item(0).text()
+    assert "buildUploadUrl" in window.script_plan.preview.toPlainText()
     assert app is not None
     window.close()
 
@@ -204,6 +205,7 @@ def test_main_window_can_add_template_recommendation_and_run_fake_analysis(tmp_p
 
     assert window.script_plan.plan_list.count() == 1
     assert "OkHttp3 SSL Unpinning" in window.script_plan.plan_list.item(0).text()
+    assert "ssl.okhttp3_unpin" in window.script_plan.preview.toPlainText()
 
     window.script_plan.run_fake_button.click()
 

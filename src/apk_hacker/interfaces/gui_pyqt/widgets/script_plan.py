@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from PyQt6.QtWidgets import QComboBox, QLabel, QListWidget, QListWidgetItem, QPushButton, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QComboBox, QLabel, QListWidget, QListWidgetItem, QPlainTextEdit, QPushButton, QVBoxLayout, QWidget
 
-from apk_hacker.domain.models.hook_plan import HookPlan
+from apk_hacker.domain.models.hook_plan import HookPlan, HookPlanItem
 
 
 class ScriptPlanWidget(QWidget):
@@ -12,11 +12,16 @@ class ScriptPlanWidget(QWidget):
         super().__init__()
         self.on_run_requested: Callable[[], None] | None = None
         self.on_execution_mode_changed: Callable[[str], None] | None = None
+        self._plan_items: tuple[HookPlanItem, ...] = ()
 
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("Script Plan"))
         self.plan_list = QListWidget()
         layout.addWidget(self.plan_list)
+        self.preview = QPlainTextEdit()
+        self.preview.setReadOnly(True)
+        self.preview.setPlaceholderText("Rendered script preview will appear here.")
+        layout.addWidget(self.preview)
         self.execution_mode_combo = QComboBox()
         self.execution_mode_combo.addItem("Fake Backend", userData="fake_backend")
         self.execution_mode_combo.addItem("Real Device", userData="real_device")
@@ -27,8 +32,10 @@ class ScriptPlanWidget(QWidget):
 
         self.run_fake_button.clicked.connect(self._emit_run_requested)
         self.execution_mode_combo.currentIndexChanged.connect(self._emit_execution_mode_changed)
+        self.plan_list.currentRowChanged.connect(self._sync_preview)
 
     def set_plan(self, plan: HookPlan) -> None:
+        self._plan_items = plan.items
         self.plan_list.clear()
         for item in plan.items:
             target = item.target
@@ -42,6 +49,10 @@ class ScriptPlanWidget(QWidget):
                 script_name = str(item.render_context.get("script_name", item.kind))
                 label = f"{script_name} [{item.kind}]"
             QListWidgetItem(label, self.plan_list)
+        if self.plan_list.count() > 0:
+            self.plan_list.setCurrentRow(0)
+        else:
+            self.preview.setPlainText("")
 
     def set_execution_mode(self, mode: str) -> None:
         index = self.execution_mode_combo.findData(mode)
@@ -59,3 +70,11 @@ class ScriptPlanWidget(QWidget):
     def _emit_execution_mode_changed(self) -> None:
         if self.on_execution_mode_changed is not None:
             self.on_execution_mode_changed(self.current_execution_mode())
+
+    def _sync_preview(self) -> None:
+        row = self.plan_list.currentRow()
+        if row < 0 or row >= len(self._plan_items):
+            self.preview.setPlainText("")
+            return
+        script = str(self._plan_items[row].render_context.get("rendered_script", ""))
+        self.preview.setPlainText(script)
