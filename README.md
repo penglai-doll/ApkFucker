@@ -125,6 +125,15 @@ export APKHACKER_REAL_BACKEND_COMMAND="uv run apk-hacker-demo-real-backend"
 uv run apk-hacker
 ```
 
+如果你本机已经装好了 `adb`，也可以直接用仓库内置的设备探测 runner：
+
+```bash
+export APKHACKER_REAL_BACKEND_COMMAND="uv run apk-hacker-adb-probe-backend"
+uv run apk-hacker
+```
+
+这个 runner 目前不会注入 Frida，但会把 `adb devices` 和设备 ABI 探测结果以真实事件的方式回传到工作台，用来验证本机到设备的桥接链路。
+
 ## 目录说明
 
 - `src/apk_hacker/static_engine/`
