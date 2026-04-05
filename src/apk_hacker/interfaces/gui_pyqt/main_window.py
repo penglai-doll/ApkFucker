@@ -7,7 +7,7 @@ from typing import Callable
 from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import QLabel, QListWidget, QMainWindow, QSplitter, QStackedWidget, QVBoxLayout, QWidget
 
-from apk_hacker.infrastructure.integrations.jadx_launcher import open_in_jadx
+from apk_hacker.infrastructure.integrations.jadx_launcher import open_in_jadx, resolve_jadx_gui_path
 from apk_hacker.interfaces.gui_pyqt.viewmodels import NavigationPage, WorkbenchController, WorkbenchState
 from apk_hacker.interfaces.gui_pyqt.widgets.custom_scripts import CustomScriptsWidget
 from apk_hacker.interfaces.gui_pyqt.widgets.execution_logs import ExecutionLogsWidget
@@ -32,7 +32,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("APKHacker")
         self.resize(1400, 900)
-        self._jadx_gui_path = jadx_gui_path
+        self._jadx_gui_path = resolve_jadx_gui_path(jadx_gui_path)
         self._jadx_launcher = jadx_launcher or open_in_jadx
 
         repo_root = Path(__file__).resolve().parents[4]

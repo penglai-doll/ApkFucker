@@ -8,6 +8,7 @@ __pycache__/
 .venv/
 dist/
 build/
+*.egg-info/
 output/
 报告/
 cache/
