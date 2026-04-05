@@ -1,13 +1,15 @@
-import os
-
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+from PyQt6.QtWidgets import QApplication
 
 from apk_hacker.interfaces.gui_pyqt.main_window import MainWindow
 
 
-def test_main_window_has_expected_navigation(qtbot) -> None:
+def _app() -> QApplication:
+    return QApplication.instance() or QApplication([])
+
+
+def test_main_window_has_expected_navigation() -> None:
+    app = _app()
     window = MainWindow()
-    qtbot.addWidget(window)
 
     labels = [window.nav_list.item(i).text() for i in range(window.nav_list.count())]
     assert labels == [
@@ -21,3 +23,6 @@ def test_main_window_has_expected_navigation(qtbot) -> None:
         "Results Summary",
     ]
     assert window.open_jadx_action.text() == "Open in JADX"
+    assert window.content_stack.count() == len(labels)
+    assert app is not None
+    window.close()
