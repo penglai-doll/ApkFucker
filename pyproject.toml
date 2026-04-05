@@ -22,6 +22,7 @@ dev = [
 apk-hacker = "apk_hacker.interfaces.gui_pyqt.main:main"
 apk-hacker-demo-real-backend = "apk_hacker.tools.demo_real_backend:main"
 apk-hacker-adb-probe-backend = "apk_hacker.tools.adb_probe_backend:main"
+apk-hacker-frida-probe-backend = "apk_hacker.tools.frida_probe_backend:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

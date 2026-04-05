@@ -3,6 +3,7 @@ import json
 
 from apk_hacker.application.services.static_adapter import StaticAdapter
 from apk_hacker.application.services.hook_plan_service import HookPlanService
+from apk_hacker.domain.models.execution import ExecutionRequest
 from apk_hacker.domain.services.method_indexer import JavaMethodIndexer
 from apk_hacker.infrastructure.execution.fake_backend import FakeExecutionBackend
 from apk_hacker.infrastructure.persistence.hook_log_store import HookLogStore
@@ -22,7 +23,14 @@ def test_mvp_flow_static_to_fake_dynamic(tmp_path: Path) -> None:
     index = JavaMethodIndexer().build(Path("tests/fixtures/jadx_sources"))
     selected = [method for method in index.methods if method.method_name == "buildUploadUrl"]
     plan = HookPlanService().plan_for_methods(selected)
-    events = FakeExecutionBackend().execute("job-1", plan)
+    events = FakeExecutionBackend().execute(
+        ExecutionRequest(
+            job_id="job-1",
+            plan=plan,
+            package_name=static_inputs.package_name,
+            sample_path=Path("/samples/demo.apk"),
+        )
+    )
 
     store = HookLogStore(tmp_path / "hooks.sqlite3")
     for event in events:

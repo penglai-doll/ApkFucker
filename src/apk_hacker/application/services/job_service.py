@@ -6,6 +6,7 @@ from typing import Protocol
 
 from apk_hacker.application.services.hook_plan_service import HookPlanService
 from apk_hacker.application.services.static_adapter import StaticAdapter
+from apk_hacker.domain.models.execution import ExecutionRequest
 from apk_hacker.domain.models.indexes import MethodIndex
 from apk_hacker.domain.models.job import AnalysisJob
 from apk_hacker.domain.models.static_inputs import StaticInputs
@@ -104,7 +105,14 @@ class JobService:
         index = self._method_indexer.build(jadx_sources_dir)
         selected = tuple(method for method in index.methods if method.method_name == "buildUploadUrl")
         plan = self._hook_plan_service.plan_for_methods(list(selected))
-        events = self._fake_backend.execute("job-1", plan)
+        events = self._fake_backend.execute(
+            ExecutionRequest(
+                job_id="job-1",
+                plan=plan,
+                package_name=static_inputs.package_name,
+                sample_path=Path("/samples/demo.apk"),
+            )
+        )
         store = HookLogStore(db_path)
         for event in events:
             store.insert(event)

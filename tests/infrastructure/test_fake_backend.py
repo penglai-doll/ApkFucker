@@ -1,3 +1,4 @@
+from apk_hacker.domain.models.execution import ExecutionRequest
 from apk_hacker.domain.models.hook_plan import HookPlan, HookPlanItem, MethodHookTarget
 from apk_hacker.infrastructure.execution.fake_backend import FakeExecutionBackend
 
@@ -25,7 +26,7 @@ def test_fake_backend_emits_hook_events() -> None:
         )
     )
 
-    events = FakeExecutionBackend().execute("job-1", plan)
+    events = FakeExecutionBackend().execute(ExecutionRequest(job_id="job-1", plan=plan))
 
     assert events[0].class_name == "com.demo.net.Config"
     assert events[0].method_name == "buildUploadUrl"
@@ -63,7 +64,7 @@ def test_fake_backend_skips_disabled_and_unsupported_targetless_items() -> None:
         )
     )
 
-    assert FakeExecutionBackend().execute("job-1", plan) == ()
+    assert FakeExecutionBackend().execute(ExecutionRequest(job_id="job-1", plan=plan)) == ()
 
 
 def test_fake_backend_emits_custom_script_events() -> None:
@@ -84,7 +85,7 @@ def test_fake_backend_emits_custom_script_events() -> None:
         )
     )
 
-    events = FakeExecutionBackend().execute("job-1", plan)
+    events = FakeExecutionBackend().execute(ExecutionRequest(job_id="job-1", plan=plan))
 
     assert len(events) == 1
     assert events[0].event_type == "script_loaded"
@@ -127,7 +128,7 @@ def test_fake_backend_respects_inject_order_when_plan_items_are_unsorted() -> No
         )
     )
 
-    events = FakeExecutionBackend().execute("job-1", plan)
+    events = FakeExecutionBackend().execute(ExecutionRequest(job_id="job-1", plan=plan))
 
     assert [event.event_type for event in events] == ["script_loaded", "method_call"]
     assert [event.method_name for event in events] == ["trace_login", "buildUploadUrl"]
@@ -151,7 +152,7 @@ def test_fake_backend_emits_template_hook_events() -> None:
         )
     )
 
-    events = FakeExecutionBackend().execute("job-1", plan)
+    events = FakeExecutionBackend().execute(ExecutionRequest(job_id="job-1", plan=plan))
 
     assert len(events) == 1
     assert events[0].event_type == "template_loaded"

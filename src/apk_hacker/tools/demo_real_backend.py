@@ -17,6 +17,7 @@ def _event_for_item(item: dict[str, object], scripts_dir: Path) -> dict[str, obj
     kind = str(item.get("kind", "unknown"))
     target = item.get("target")
     render_context = item.get("render_context", {})
+    package_name = os.environ.get("APKHACKER_TARGET_PACKAGE", "")
     if not isinstance(render_context, dict):
         render_context = {}
 
@@ -28,6 +29,8 @@ def _event_for_item(item: dict[str, object], scripts_dir: Path) -> dict[str, obj
         class_name = str(target.get("class_name", class_name))
         method_name = str(target.get("method_name", method_name))
         arguments = [path.name for path in sorted(scripts_dir.glob("*.js"))]
+        if package_name:
+            arguments.append(package_name)
         return_value = "demo-real-method"
         event_type = "method_call"
     elif kind == "template_hook":

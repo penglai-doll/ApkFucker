@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
+from apk_hacker.domain.models.execution import ExecutionRequest
 from apk_hacker.domain.models.hook_event import HookEvent
-from apk_hacker.domain.models.hook_plan import HookPlan
 
 
 class ExecutionBackendUnavailable(RuntimeError):
@@ -12,5 +12,5 @@ class ExecutionBackendUnavailable(RuntimeError):
 
 class ExecutionBackend(ABC):
     @abstractmethod
-    def execute(self, job_id: str, plan: HookPlan) -> tuple[HookEvent, ...]:
+    def execute(self, request: ExecutionRequest) -> tuple[HookEvent, ...]:
         raise NotImplementedError

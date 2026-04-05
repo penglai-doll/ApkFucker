@@ -2,6 +2,7 @@ from pathlib import Path
 import os
 import sys
 
+from apk_hacker.domain.models.execution import ExecutionRequest
 from apk_hacker.domain.models.hook_plan import HookPlan
 from apk_hacker.infrastructure.execution.real_backend import RealExecutionBackend
 
@@ -30,7 +31,7 @@ exit 1
         extra_env={"PATH": env_path},
     )
 
-    events = backend.execute("job-1", HookPlan(items=()))
+    events = backend.execute(ExecutionRequest(job_id="job-1", plan=HookPlan(items=())))
 
     assert len(events) == 1
     assert events[0].event_type == "device_status"
@@ -59,7 +60,7 @@ exit 1
         extra_env={"PATH": env_path},
     )
 
-    events = backend.execute("job-1", HookPlan(items=()))
+    events = backend.execute(ExecutionRequest(job_id="job-1", plan=HookPlan(items=())))
 
     assert [event.event_type for event in events] == ["device_connected", "device_property"]
     assert events[0].method_name == "serial-123"

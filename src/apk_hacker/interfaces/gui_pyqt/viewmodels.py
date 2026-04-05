@@ -9,6 +9,7 @@ from apk_hacker.application.services.environment_service import EnvironmentServi
 from apk_hacker.application.services.hook_plan_service import HookPlanService
 from apk_hacker.application.services.job_service import JobService
 from apk_hacker.application.services.static_adapter import StaticAdapter
+from apk_hacker.domain.models.execution import ExecutionRequest
 from apk_hacker.domain.models.hook_advice import HookRecommendation
 from apk_hacker.domain.models.environment import EnvironmentSnapshot
 from apk_hacker.domain.models.hook_event import HookEvent
@@ -266,8 +267,9 @@ class WorkbenchController:
                 hook_events=(),
                 summary_text=f"Execution mode {state.execution_mode} is not available in this build.",
             )
+        request = self._build_execution_request(state)
         try:
-            events = backend.execute(state.current_job.job_id, state.hook_plan)
+            events = backend.execute(request)
         except ExecutionBackendUnavailable as exc:
             return replace(state, hook_events=(), summary_text=str(exc))
         return self._persist_execution(state, events)
@@ -293,8 +295,19 @@ class WorkbenchController:
             return replace(state, summary_text="Load a workspace before running fake analysis.")
         if not state.hook_plan.items:
             return replace(state, summary_text="Add at least one hook plan item first.")
-        events = self._execution_backends["fake_backend"].execute(state.current_job.job_id, state.hook_plan)
+        events = self._execution_backends["fake_backend"].execute(self._build_execution_request(state))
         return self._persist_execution(state, events)
+
+    @staticmethod
+    def _build_execution_request(state: WorkbenchState) -> ExecutionRequest:
+        if state.current_job is None:
+            raise RuntimeError("Execution request requires a current job.")
+        return ExecutionRequest(
+            job_id=state.current_job.job_id,
+            plan=state.hook_plan,
+            package_name=state.static_inputs.package_name if state.static_inputs is not None else None,
+            sample_path=state.sample_path,
+        )
 
     def _persist_execution(
         self,

@@ -2,6 +2,7 @@ from pathlib import Path
 
 from PyQt6.QtWidgets import QApplication
 
+from apk_hacker.domain.models.execution import ExecutionRequest
 from apk_hacker.domain.models.hook_event import HookEvent
 from apk_hacker.domain.models.hook_plan import HookPlan
 from apk_hacker.application.services.job_service import JobService
@@ -80,10 +81,10 @@ class _FakeJadxLauncher:
 class _FakeRealBackend(ExecutionBackend):
     def __init__(self, events: tuple[HookEvent, ...]) -> None:
         self.events = events
-        self.calls: list[tuple[str, HookPlan]] = []
+        self.calls: list[ExecutionRequest] = []
 
-    def execute(self, job_id: str, plan: HookPlan) -> tuple[HookEvent, ...]:
-        self.calls.append((job_id, plan))
+    def execute(self, request: ExecutionRequest) -> tuple[HookEvent, ...]:
+        self.calls.append(request)
         return self.events
 
 

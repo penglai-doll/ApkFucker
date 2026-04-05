@@ -104,11 +104,13 @@ uv run apk-hacker --help
 - `Real Device`
   - 目前是“命令型真实后端”骨架
   - 可以通过环境变量 `APKHACKER_REAL_BACKEND_COMMAND` 指向你自己的执行器脚本
-  - 后端会把当前计划和已渲染的脚本写入临时目录，再把路径通过环境变量传给执行器：
+  - 后端会把当前计划和已渲染的脚本写入临时目录，再把路径和运行上下文通过环境变量传给执行器：
     - `APKHACKER_JOB_ID`
+    - `APKHACKER_TARGET_PACKAGE`
     - `APKHACKER_PLAN_PATH`
     - `APKHACKER_SCRIPTS_DIR`
     - `APKHACKER_WORKDIR`
+    - `APKHACKER_SAMPLE_PATH`（有样本路径时）
   - 执行器向标准输出打印 JSON 行后，工作台会把它解析成真实事件
 
 一个最简单的外部执行器可以是：
@@ -134,6 +136,15 @@ uv run apk-hacker
 
 这个 runner 目前不会注入 Frida，但会把 `adb devices` 和设备 ABI 探测结果以真实事件的方式回传到工作台，用来验证本机到设备的桥接链路。
 
+如果你本机已经装好了 `frida-tools`，也可以直接用仓库内置的 Frida 目标探测 runner：
+
+```bash
+export APKHACKER_REAL_BACKEND_COMMAND="uv run apk-hacker-frida-probe-backend"
+uv run apk-hacker
+```
+
+这个 runner 会调用 `frida-ps -Uai`，并根据当前工作台里样本的包名回传目标可见性事件，适合先验证 `Real Device -> Frida -> 目标包识别` 这条最小链路。
+
 ## 目录说明
 
 - `src/apk_hacker/static_engine/`
@@ -155,7 +166,7 @@ uv run pytest -q
 
 当前分支验证结果为：
 
-- `63 passed`
+- `91 passed`
 
 ## 注意事项
 

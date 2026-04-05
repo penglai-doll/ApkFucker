@@ -9,6 +9,7 @@ import shlex
 import subprocess
 from tempfile import TemporaryDirectory
 
+from apk_hacker.domain.models.execution import ExecutionRequest
 from apk_hacker.domain.models.hook_event import HookEvent
 from apk_hacker.domain.models.hook_plan import HookPlan, HookPlanItem
 from apk_hacker.infrastructure.execution.backend import ExecutionBackend, ExecutionBackendUnavailable
@@ -109,13 +110,13 @@ class CommandExecutionRunner:
         self._command = command
         self._extra_env = dict(extra_env or {})
 
-    def __call__(self, job_id: str, plan: HookPlan) -> tuple[HookEvent, ...]:
+    def __call__(self, request: ExecutionRequest) -> tuple[HookEvent, ...]:
         with TemporaryDirectory(prefix="apkhacker-real-backend-") as temp_dir:
             workdir = Path(temp_dir)
             scripts_dir = workdir / "scripts"
             scripts_dir.mkdir(parents=True, exist_ok=True)
 
-            for item in sorted(plan.items, key=lambda plan_item: plan_item.inject_order):
+            for item in sorted(request.plan.items, key=lambda plan_item: plan_item.inject_order):
                 rendered_script = str(item.render_context.get("rendered_script", ""))
                 stem = item.kind
                 if item.target is not None:
@@ -128,18 +129,25 @@ class CommandExecutionRunner:
                 script_path.write_text(rendered_script, encoding="utf-8")
 
             plan_path = workdir / "plan.json"
-            plan_path.write_text(json.dumps(_serialize_plan(plan), ensure_ascii=False, indent=2), encoding="utf-8")
+            plan_path.write_text(
+                json.dumps(_serialize_plan(request.plan), ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
 
             env = os.environ.copy()
             env.update(self._extra_env)
             env.update(
                 {
-                    "APKHACKER_JOB_ID": job_id,
+                    "APKHACKER_JOB_ID": request.job_id,
                     "APKHACKER_PLAN_PATH": str(plan_path),
                     "APKHACKER_SCRIPTS_DIR": str(scripts_dir),
                     "APKHACKER_WORKDIR": str(workdir),
                 }
             )
+            if request.package_name:
+                env["APKHACKER_TARGET_PACKAGE"] = request.package_name
+            if request.sample_path is not None:
+                env["APKHACKER_SAMPLE_PATH"] = str(request.sample_path)
             completed = subprocess.run(
                 shlex.split(self._command),
                 cwd=workdir,
@@ -153,13 +161,13 @@ class CommandExecutionRunner:
                 stdout = completed.stdout.strip()
                 detail = stderr or stdout or f"exit code {completed.returncode}"
                 raise ExecutionBackendUnavailable(f"Real device execution failed: {detail}")
-            return _parse_events(job_id, completed.stdout)
+            return _parse_events(request.job_id, completed.stdout)
 
 
 class RealExecutionBackend(ExecutionBackend):
     def __init__(
         self,
-        runner: Callable[[str, HookPlan], tuple[HookEvent, ...]] | None = None,
+        runner: Callable[[ExecutionRequest], tuple[HookEvent, ...]] | None = None,
         command: str | None = None,
         extra_env: Mapping[str, str] | None = None,
     ) -> None:
@@ -169,10 +177,10 @@ class RealExecutionBackend(ExecutionBackend):
             resolved_runner = CommandExecutionRunner(resolved_command, extra_env=extra_env)
         self._runner = resolved_runner
 
-    def execute(self, job_id: str, plan: HookPlan) -> tuple[HookEvent, ...]:
+    def execute(self, request: ExecutionRequest) -> tuple[HookEvent, ...]:
         if self._runner is None:
             raise ExecutionBackendUnavailable(
                 f"Real device execution is not available because the backend is not configured. "
                 f"Set {ENV_COMMAND} or inject a real backend runner."
             )
-        return self._runner(job_id, plan)
+        return self._runner(request)

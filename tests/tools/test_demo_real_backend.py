@@ -1,6 +1,7 @@
 from pathlib import Path
 import sys
 
+from apk_hacker.domain.models.execution import ExecutionRequest
 from apk_hacker.application.services.hook_plan_service import HookPlanService
 from apk_hacker.domain.models.hook_plan import HookPlanSource
 from apk_hacker.domain.models.indexes import MethodIndexEntry
@@ -30,7 +31,13 @@ def test_packaged_demo_real_backend_runs_via_command_bridge(tmp_path: Path) -> N
     )
 
     backend = RealExecutionBackend(command=f"{sys.executable} -m apk_hacker.tools.demo_real_backend")
-    events = backend.execute("job-1", plan)
+    events = backend.execute(
+        ExecutionRequest(
+            job_id="job-1",
+            plan=plan,
+            package_name="com.demo.shell",
+        )
+    )
 
     assert [event.event_type for event in events] == ["template_loaded", "method_call"]
     assert events[0].method_name == "OkHttp3 SSL Unpinning"

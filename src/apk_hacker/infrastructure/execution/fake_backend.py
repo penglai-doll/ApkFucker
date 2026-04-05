@@ -2,16 +2,16 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from apk_hacker.domain.models.execution import ExecutionRequest
 from apk_hacker.domain.models.hook_event import HookEvent
-from apk_hacker.domain.models.hook_plan import HookPlan
 from apk_hacker.infrastructure.execution.backend import ExecutionBackend
 
 
 class FakeExecutionBackend(ExecutionBackend):
-    def execute(self, job_id: str, plan: HookPlan) -> tuple[HookEvent, ...]:
+    def execute(self, request: ExecutionRequest) -> tuple[HookEvent, ...]:
         events: list[HookEvent] = []
 
-        for item in sorted(plan.items, key=lambda plan_item: plan_item.inject_order):
+        for item in sorted(request.plan.items, key=lambda plan_item: plan_item.inject_order):
             if not item.enabled:
                 continue
 
@@ -19,7 +19,7 @@ class FakeExecutionBackend(ExecutionBackend):
                 events.append(
                     HookEvent(
                         timestamp=datetime.now(timezone.utc).isoformat(),
-                        job_id=job_id,
+                        job_id=request.job_id,
                         event_type="method_call",
                         source="fake",
                         class_name=item.target.class_name,
@@ -38,7 +38,7 @@ class FakeExecutionBackend(ExecutionBackend):
                 events.append(
                     HookEvent(
                         timestamp=datetime.now(timezone.utc).isoformat(),
-                        job_id=job_id,
+                        job_id=request.job_id,
                         event_type="template_loaded",
                         source="fake",
                         class_name="builtin.template",
@@ -62,7 +62,7 @@ class FakeExecutionBackend(ExecutionBackend):
             events.append(
                 HookEvent(
                     timestamp=datetime.now(timezone.utc).isoformat(),
-                    job_id=job_id,
+                    job_id=request.job_id,
                     event_type="script_loaded",
                     source="fake",
                     class_name="custom.script",
