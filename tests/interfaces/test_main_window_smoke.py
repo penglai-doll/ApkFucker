@@ -20,6 +20,7 @@ def test_main_window_has_expected_navigation() -> None:
         "Script Plan",
         "Custom Frida Scripts",
         "Execution & Logs",
+        "Traffic Capture",
         "Results Summary",
     ]
     assert window.open_jadx_action.text() == "Open in JADX"

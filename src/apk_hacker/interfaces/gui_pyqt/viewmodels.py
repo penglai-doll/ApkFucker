@@ -14,9 +14,11 @@ from apk_hacker.domain.models.hook_plan import HookPlan, HookPlanSource
 from apk_hacker.domain.models.indexes import MethodIndex, MethodIndexEntry
 from apk_hacker.domain.models.job import AnalysisJob
 from apk_hacker.domain.models.static_inputs import StaticInputs
+from apk_hacker.domain.models.traffic import TrafficCapture
 from apk_hacker.domain.services.hook_advisor import OfflineHookAdvisor
 from apk_hacker.domain.services.hook_search import HookSearch
 from apk_hacker.domain.services.method_indexer import JavaMethodIndexer
+from apk_hacker.application.services.traffic_capture_service import TrafficCaptureService
 from apk_hacker.infrastructure.execution.backend import ExecutionBackend, ExecutionBackendUnavailable
 from apk_hacker.infrastructure.execution.fake_backend import FakeExecutionBackend
 from apk_hacker.infrastructure.execution.real_backend import RealExecutionBackend
@@ -48,6 +50,7 @@ class WorkbenchState:
     selected_sources: tuple[HookPlanSource, ...] = ()
     hook_plan: HookPlan = field(default_factory=_empty_hook_plan)
     hook_events: tuple[HookEvent, ...] = ()
+    traffic_capture: TrafficCapture | None = None
     custom_scripts: tuple[CustomScriptRecord, ...] = ()
     execution_mode: str = "fake_backend"
     selected_custom_script_path: Path | None = None
@@ -79,6 +82,7 @@ class WorkbenchController:
         self._hook_advisor = OfflineHookAdvisor()
         self._search = HookSearch()
         self._hook_plan_service = HookPlanService()
+        self._traffic_capture_service = TrafficCaptureService()
         self._custom_scripts = CustomScriptService(scripts_root)
         self._execution_backends = {
             "fake_backend": FakeExecutionBackend(),
@@ -252,6 +256,22 @@ class WorkbenchController:
         except ExecutionBackendUnavailable as exc:
             return replace(state, hook_events=(), summary_text=str(exc))
         return self._persist_execution(state, events)
+
+    def load_traffic_capture(self, state: WorkbenchState, har_path: Path) -> WorkbenchState:
+        if state.static_inputs is None:
+            return replace(state, summary_text="Load a workspace before importing HAR capture.")
+        try:
+            capture = self._traffic_capture_service.load_har(har_path, state.static_inputs)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            return replace(state, summary_text=f"Failed to load HAR capture: {exc}")
+        return replace(
+            state,
+            traffic_capture=capture,
+            summary_text=(
+                f"Loaded {capture.flow_count} flow(s) from {capture.source_path.name}; "
+                f"{capture.suspicious_count} suspicious flow(s) matched callback indicators."
+            ),
+        )
 
     def run_fake_analysis(self, state: WorkbenchState) -> WorkbenchState:
         if state.current_job is None:

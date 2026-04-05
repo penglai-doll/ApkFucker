@@ -213,6 +213,45 @@ def test_main_window_can_add_template_recommendation_and_run_fake_analysis(tmp_p
     window.close()
 
 
+def test_main_window_loads_har_capture_and_updates_summary(tmp_path: Path) -> None:
+    app = _app()
+    sample_path = tmp_path / "sample.apk"
+    sample_path.write_bytes(b"apk")
+    output_root = tmp_path / "artifacts"
+    fixture_root = Path("tests/fixtures/static_outputs").resolve()
+    jadx_sources = Path("tests/fixtures/jadx_sources").resolve()
+    fake_analyzer = _FakeStaticAnalyzer(
+        StaticArtifacts(
+            output_root=output_root,
+            report_dir=output_root / "报告" / "sample",
+            cache_dir=output_root / "cache" / "sample",
+            analysis_json=fixture_root / "sample_analysis.json",
+            callback_config_json=fixture_root / "sample_callback-config.json",
+            noise_log_json=output_root / "cache" / "sample" / "noise-log.json",
+            jadx_sources_dir=jadx_sources,
+            jadx_project_dir=None,
+        )
+    )
+    controller = WorkbenchController(
+        job_service=JobService(static_analyzer=fake_analyzer),
+        scripts_root=tmp_path / "scripts",
+        db_root=tmp_path,
+    )
+    window = MainWindow(controller=controller)
+
+    window.task_center.sample_path_input.setText(str(sample_path))
+    window.task_center.run_analysis_button.click()
+    window.traffic_capture.har_path_input.setText(str(Path("tests/fixtures/traffic/sample.har").resolve()))
+    window.traffic_capture.load_button.click()
+
+    assert window.traffic_capture.flow_list.count() == 2
+    assert "demo-c2.example/api/upload" in window.traffic_capture.flow_list.item(0).text()
+    assert "suspicious" in window.traffic_capture.flow_list.item(0).text().lower()
+    assert "1 suspicious flow" in window.results_summary.summary_label.text().lower()
+    assert app is not None
+    window.close()
+
+
 def test_main_window_surfaces_real_static_analysis_failures(tmp_path: Path) -> None:
     app = _app()
     sample_path = tmp_path / "broken.apk"

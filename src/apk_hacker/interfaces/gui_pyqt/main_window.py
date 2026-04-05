@@ -17,6 +17,7 @@ from apk_hacker.interfaces.gui_pyqt.widgets.results_summary import ResultsSummar
 from apk_hacker.interfaces.gui_pyqt.widgets.script_plan import ScriptPlanWidget
 from apk_hacker.interfaces.gui_pyqt.widgets.static_summary import StaticSummaryWidget
 from apk_hacker.interfaces.gui_pyqt.widgets.task_center import TaskCenterWidget
+from apk_hacker.interfaces.gui_pyqt.widgets.traffic_capture import TrafficCaptureWidget
 
 
 class MainWindow(QMainWindow):
@@ -65,6 +66,7 @@ class MainWindow(QMainWindow):
         self.script_plan = ScriptPlanWidget()
         self.custom_scripts = CustomScriptsWidget()
         self.execution_logs = ExecutionLogsWidget()
+        self.traffic_capture = TrafficCaptureWidget()
         self.results_summary = ResultsSummaryWidget()
 
         self.method_index.on_search_requested = self._search_methods
@@ -76,6 +78,7 @@ class MainWindow(QMainWindow):
         self.custom_scripts.on_selection_changed = self._select_custom_script
         self.script_plan.on_execution_mode_changed = self._change_execution_mode
         self.script_plan.on_run_requested = self._run_analysis
+        self.traffic_capture.on_load_requested = self._load_traffic_capture
         self.task_center.run_analysis_button.clicked.connect(self._load_sample_workspace)
         self.task_center.load_demo_button.clicked.connect(self._load_demo_workspace)
         self.task_center.set_analysis_available(True)
@@ -105,6 +108,7 @@ class MainWindow(QMainWindow):
             (NavigationPage("Script Plan", "script-plan"), self.script_plan),
             (NavigationPage("Custom Frida Scripts", "custom-scripts"), self.custom_scripts),
             (NavigationPage("Execution & Logs", "execution-logs"), self.execution_logs),
+            (NavigationPage("Traffic Capture", "traffic-capture"), self.traffic_capture),
             (NavigationPage("Results Summary", "results-summary"), self.results_summary),
         )
 
@@ -141,6 +145,11 @@ class MainWindow(QMainWindow):
 
     def _run_analysis(self) -> None:
         self._state = self._controller.run_analysis(self._state)
+        self._sync_ui()
+
+    def _load_traffic_capture(self) -> None:
+        har_path = self.traffic_capture.selected_har_path()
+        self._state = self._controller.load_traffic_capture(self._state, har_path)
         self._sync_ui()
 
     def _add_selected_recommendation(self) -> None:
@@ -222,6 +231,7 @@ class MainWindow(QMainWindow):
             self._state.custom_script_draft_content,
         )
         self.execution_logs.set_events(self._state.hook_events)
+        self.traffic_capture.set_capture(self._state.traffic_capture)
         self.results_summary.set_summary(self._state.summary_text)
         self.open_jadx_action.setEnabled(self._can_open_in_jadx())
 
