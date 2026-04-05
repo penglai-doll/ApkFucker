@@ -23,7 +23,17 @@ def test_main_window_has_expected_navigation() -> None:
         "Results Summary",
     ]
     assert window.open_jadx_action.text() == "Open in JADX"
+    assert not window.open_jadx_action.isEnabled()
     assert window.content_stack.count() == len(labels)
+    assert app is not None
+    window.close()
+
+
+def test_main_window_keeps_open_jadx_disabled_for_blank_launcher_path() -> None:
+    app = _app()
+    window = MainWindow(jadx_gui_path="")
+
+    assert not window.open_jadx_action.isEnabled()
     assert app is not None
     window.close()
 

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
+from typing import Callable
 
 from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import QLabel, QListWidget, QMainWindow, QSplitter, QStackedWidget, QVBoxLayout, QWidget
 
+from apk_hacker.infrastructure.integrations.jadx_launcher import open_in_jadx
 from apk_hacker.interfaces.gui_pyqt.viewmodels import NavigationPage, WorkbenchController, WorkbenchState
 from apk_hacker.interfaces.gui_pyqt.widgets.custom_scripts import CustomScriptsWidget
 from apk_hacker.interfaces.gui_pyqt.widgets.execution_logs import ExecutionLogsWidget
@@ -22,11 +25,15 @@ class MainWindow(QMainWindow):
         jadx_sources_root: Path | None = None,
         scripts_root: Path | None = None,
         db_root: Path | None = None,
+        jadx_gui_path: str | None = None,
+        jadx_launcher: Callable[[str, Path], object] | None = None,
         controller: WorkbenchController | None = None,
     ) -> None:
         super().__init__()
         self.setWindowTitle("APKHacker")
         self.resize(1400, 900)
+        self._jadx_gui_path = jadx_gui_path
+        self._jadx_launcher = jadx_launcher or open_in_jadx
 
         repo_root = Path(__file__).resolve().parents[4]
         if controller is not None:
@@ -45,6 +52,7 @@ class MainWindow(QMainWindow):
 
         self.open_jadx_action = QAction("Open in JADX", self)
         self.menuBar().addAction(self.open_jadx_action)
+        self.open_jadx_action.triggered.connect(self._open_in_jadx)
 
         self.nav_list = QListWidget()
         self.content_stack = QStackedWidget()
@@ -128,6 +136,19 @@ class MainWindow(QMainWindow):
         self._state = self._controller.run_fake_analysis(self._state)
         self._sync_ui()
 
+    def _open_in_jadx(self) -> None:
+        if not self._can_open_in_jadx():
+            return
+        jadx_gui_path = self._jadx_gui_path
+        sample_path = self._state.sample_path
+        if jadx_gui_path is None or sample_path is None:
+            return
+        try:
+            self._jadx_launcher(jadx_gui_path, sample_path)
+        except OSError as exc:
+            self._state = replace(self._state, summary_text=f"Failed to open JADX: {exc}")
+            self._sync_ui()
+
     def _sync_ui(self) -> None:
         current_method = self.method_index.current_method()
         self.task_center.set_job(self._state.current_job, self._state.sample_path)
@@ -139,6 +160,15 @@ class MainWindow(QMainWindow):
         self.custom_scripts.set_scripts(self._state.custom_scripts)
         self.execution_logs.set_events(self._state.hook_events)
         self.results_summary.set_summary(self._state.summary_text)
+        self.open_jadx_action.setEnabled(self._can_open_in_jadx())
+
+    def _can_open_in_jadx(self) -> bool:
+        return bool(
+            self._jadx_gui_path
+            and self._jadx_gui_path.strip()
+            and self._state.sample_path is not None
+            and self._state.static_inputs is not None
+        )
 
 
 class _PlaceholderPage(QWidget):

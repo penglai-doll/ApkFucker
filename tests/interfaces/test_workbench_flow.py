@@ -66,6 +66,14 @@ class _FailingStaticAnalyzer:
         raise RuntimeError("jadx is unavailable")
 
 
+class _FakeJadxLauncher:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, Path]] = []
+
+    def __call__(self, jadx_gui_path: str, target_path: Path) -> None:
+        self.calls.append((jadx_gui_path, target_path))
+
+
 def test_main_window_runs_real_static_analysis_workflow(tmp_path: Path) -> None:
     app = _app()
     sample_path = tmp_path / "sample.apk"
@@ -107,12 +115,17 @@ def test_main_window_surfaces_real_static_analysis_failures(tmp_path: Path) -> N
     app = _app()
     sample_path = tmp_path / "broken.apk"
     sample_path.write_bytes(b"apk")
+    fake_launcher = _FakeJadxLauncher()
     controller = WorkbenchController(
         job_service=JobService(static_analyzer=_FailingStaticAnalyzer()),
         scripts_root=tmp_path / "scripts",
         db_root=tmp_path,
     )
-    window = MainWindow(controller=controller)
+    window = MainWindow(
+        controller=controller,
+        jadx_gui_path="/opt/jadx/bin/jadx-gui",
+        jadx_launcher=fake_launcher,
+    )
 
     window.task_center.sample_path_input.setText(str(sample_path))
     window.task_center.run_analysis_button.click()
@@ -121,5 +134,85 @@ def test_main_window_surfaces_real_static_analysis_failures(tmp_path: Path) -> N
     assert "jadx is unavailable" in window.results_summary.summary_label.text().lower()
     assert window.task_center.current_sample_value.text() == str(sample_path)
     assert window.method_index.method_list.count() == 0
+    assert not window.open_jadx_action.isEnabled()
+    window.open_jadx_action.trigger()
+    assert fake_launcher.calls == []
+    assert app is not None
+    window.close()
+
+
+def test_main_window_opens_loaded_sample_in_jadx(tmp_path: Path) -> None:
+    app = _app()
+    sample_path = tmp_path / "sample.apk"
+    sample_path.write_bytes(b"apk")
+    output_root = tmp_path / "artifacts"
+    fixture_root = Path("tests/fixtures/static_outputs").resolve()
+    jadx_sources = Path("tests/fixtures/jadx_sources").resolve()
+    fake_analyzer = _FakeStaticAnalyzer(
+        StaticArtifacts(
+            output_root=output_root,
+            report_dir=output_root / "报告" / "sample",
+            cache_dir=output_root / "cache" / "sample",
+            analysis_json=fixture_root / "sample_analysis.json",
+            callback_config_json=fixture_root / "sample_callback-config.json",
+            noise_log_json=output_root / "cache" / "sample" / "noise-log.json",
+            jadx_sources_dir=jadx_sources,
+            jadx_project_dir=None,
+        )
+    )
+    fake_launcher = _FakeJadxLauncher()
+    controller = WorkbenchController(
+        job_service=JobService(static_analyzer=fake_analyzer),
+        scripts_root=tmp_path / "scripts",
+        db_root=tmp_path,
+    )
+    window = MainWindow(
+        controller=controller,
+        jadx_gui_path="/opt/jadx/bin/jadx-gui",
+        jadx_launcher=fake_launcher,
+    )
+
+    assert not window.open_jadx_action.isEnabled()
+    window.task_center.sample_path_input.setText(str(sample_path))
+    window.task_center.run_analysis_button.click()
+
+    assert window.open_jadx_action.isEnabled()
+    window.open_jadx_action.trigger()
+
+    assert fake_launcher.calls == [("/opt/jadx/bin/jadx-gui", sample_path)]
+    assert app is not None
+    window.close()
+
+
+def test_main_window_keeps_open_jadx_disabled_for_blank_path_after_load(tmp_path: Path) -> None:
+    app = _app()
+    sample_path = tmp_path / "sample.apk"
+    sample_path.write_bytes(b"apk")
+    output_root = tmp_path / "artifacts"
+    fixture_root = Path("tests/fixtures/static_outputs").resolve()
+    jadx_sources = Path("tests/fixtures/jadx_sources").resolve()
+    fake_analyzer = _FakeStaticAnalyzer(
+        StaticArtifacts(
+            output_root=output_root,
+            report_dir=output_root / "报告" / "sample",
+            cache_dir=output_root / "cache" / "sample",
+            analysis_json=fixture_root / "sample_analysis.json",
+            callback_config_json=fixture_root / "sample_callback-config.json",
+            noise_log_json=output_root / "cache" / "sample" / "noise-log.json",
+            jadx_sources_dir=jadx_sources,
+            jadx_project_dir=None,
+        )
+    )
+    controller = WorkbenchController(
+        job_service=JobService(static_analyzer=fake_analyzer),
+        scripts_root=tmp_path / "scripts",
+        db_root=tmp_path,
+    )
+    window = MainWindow(controller=controller, jadx_gui_path="")
+
+    window.task_center.sample_path_input.setText(str(sample_path))
+    window.task_center.run_analysis_button.click()
+
+    assert not window.open_jadx_action.isEnabled()
     assert app is not None
     window.close()
