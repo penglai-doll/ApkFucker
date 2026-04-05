@@ -12,7 +12,7 @@ CLASS_RE = re.compile(r"\bclass\s+([A-Za-z0-9_]+)\b")
 METHOD_RE = re.compile(
     r"""
     ^\s*
-    (?P<visibility>public|protected|private)\s+
+    (?:(?P<visibility>public|protected|private)\s+)?
     (?:(?:static|final|synchronized|native|abstract|strictfp)\s+)*
     (?:(?P<return_type>[A-Za-z0-9_$.<>\[\]]+)\s+)?
     (?P<method_name>[A-Za-z0-9_]+)
