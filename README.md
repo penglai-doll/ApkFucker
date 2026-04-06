@@ -153,6 +153,16 @@ uv run apk-hacker
 
 这个 runner 会调用 `frida-ps -Uai`，并根据当前工作台里样本的包名回传目标可见性事件，适合先验证 `Real Device -> Frida -> 目标包识别` 这条最小链路。
 
+如果你想继续往前验证一次最小注入探针，也可以使用：
+
+```bash
+uv run apk-hacker \
+  --sample /path/to/sample.apk \
+  --real-backend-command "uv run apk-hacker-frida-inject-backend"
+```
+
+这个 runner 会选取当前计划里第一份已渲染脚本，调用 `frida -U -f <package> -l <script>` 做一次短时注入探针，并把结果折叠成单条 `frida_injection` 事件。它当前更适合做链路验证，还不是长期会话采集器。
+
 ## 目录说明
 
 - `src/apk_hacker/static_engine/`
