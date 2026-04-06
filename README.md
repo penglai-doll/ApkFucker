@@ -30,6 +30,7 @@
 - 工作台运行参数持久化
 - 真实后端运行包持久化
 - 日志事件详情面板
+- 结果页路径一键复制
 
 当前未完成：
 
@@ -134,6 +135,7 @@ uv run apk-hacker --help
 如果你不想每次都从命令行传参数，工作台的 `Task Center` 里也提供了 `Device Serial`、`Frida Server Binary`、`Frida Remote Path` 和 `Session Seconds` 四个输入框；它们会直接透传到真实后端执行环境中。
 这些输入以及上次使用的样本路径、执行模式，都会保存在本地 `workbench-settings.json` 里，重新打开工作台后会自动恢复。
 当你走真实后端链路时，工作台还会把每次执行对应的 `plan.json`、渲染脚本、`stdout.log` 和 `stderr.log` 保存在本地运行包目录里，并在 `Results Summary` 页直接显示 SQLite 和运行包路径。
+结果页还提供了路径一键复制按钮，方便直接贴到终端、Finder 或其他工具里继续排查。
 
 ## 执行模式说明
 
@@ -256,7 +258,7 @@ uv run pytest -q
 
 当前分支验证结果为：
 
-- `119 passed`
+- `121 passed`
 
 ## 注意事项
 
