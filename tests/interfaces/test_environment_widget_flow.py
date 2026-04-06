@@ -48,6 +48,7 @@ def test_main_window_refreshes_environment_status(tmp_path: Path) -> None:
 
     assert "1 available" in window.task_center.environment_summary_value.text().lower()
     assert "adb: missing" in window.task_center.environment_details_value.text().lower()
+    assert "Real Device: unavailable (no ready backend)" in window.task_center.execution_presets_value.text()
     assert "ADB Probe: unavailable" in window.task_center.execution_presets_value.text()
     assert "Frida Session: unavailable" in window.task_center.execution_presets_value.text()
     adb_probe_index = window.script_plan.execution_mode_combo.findData("real_adb_probe")
@@ -59,6 +60,7 @@ def test_main_window_refreshes_environment_status(tmp_path: Path) -> None:
 
     assert "4 available" in window.task_center.environment_summary_value.text().lower()
     assert "adb: /opt/android/adb" in window.task_center.environment_details_value.text().lower()
+    assert "Real Device: ready (Frida Session)" in window.task_center.execution_presets_value.text()
     assert "ADB Probe: ready" in window.task_center.execution_presets_value.text()
     assert "Frida Session: ready" in window.task_center.execution_presets_value.text()
     assert window.script_plan.execution_mode_combo.model().item(adb_probe_index).isEnabled()

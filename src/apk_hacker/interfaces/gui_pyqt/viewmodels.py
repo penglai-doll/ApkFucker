@@ -7,7 +7,12 @@ import sys
 
 from apk_hacker.application.services.custom_script_service import CustomScriptRecord, CustomScriptService
 from apk_hacker.application.services.environment_service import EnvironmentService
-from apk_hacker.application.services.execution_presets import EXECUTION_PRESETS, ExecutionPresetStatus, build_execution_preset_statuses
+from apk_hacker.application.services.execution_presets import (
+    EXECUTION_PRESETS,
+    ExecutionPresetStatus,
+    build_execution_preset_statuses,
+    resolve_real_device_backend,
+)
 from apk_hacker.application.services.hook_plan_service import HookPlanService
 from apk_hacker.application.services.job_service import JobService
 from apk_hacker.application.services.static_adapter import StaticAdapter
@@ -307,12 +312,13 @@ class WorkbenchController:
         if not state.hook_plan.items:
             return replace(state, summary_text="Add at least one hook plan item first.")
 
-        backend = self._execution_backends.get(state.execution_mode)
+        backend_key = self._resolve_execution_backend_key(state)
+        backend = self._execution_backends.get(backend_key)
         if backend is None:
             return replace(
                 state,
                 hook_events=(),
-                summary_text=f"Execution mode {state.execution_mode} is not available in this build.",
+                summary_text=f"Execution mode {backend_key} is not available in this build.",
             )
         request = self._build_execution_request(state)
         try:
@@ -344,6 +350,15 @@ class WorkbenchController:
             return replace(state, summary_text="Add at least one hook plan item first.")
         events = self._execution_backends["fake_backend"].execute(self._build_execution_request(state))
         return self._persist_execution(state, events)
+
+    def _resolve_execution_backend_key(self, state: WorkbenchState) -> str:
+        if state.execution_mode != "real_device":
+            return state.execution_mode
+        backend = self._execution_backends.get("real_device")
+        if isinstance(backend, RealExecutionBackend) and backend.configured:
+            return "real_device"
+        recommended = resolve_real_device_backend(state.execution_preset_statuses)
+        return recommended or "real_device"
 
     @staticmethod
     def _build_execution_request(state: WorkbenchState) -> ExecutionRequest:
