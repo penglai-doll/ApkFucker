@@ -110,6 +110,10 @@ class WorkbenchController:
             self._execution_backends.update(execution_backends)
 
     @property
+    def db_root(self) -> Path:
+        return self._db_root
+
+    @property
     def demo_available(self) -> bool:
         return self._fixture_root is not None and self._jadx_sources_root is not None
 

@@ -4,9 +4,10 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Callable
 
-from PyQt6.QtGui import QAction
+from PyQt6.QtGui import QAction, QCloseEvent
 from PyQt6.QtWidgets import QListWidget, QMainWindow, QSplitter, QStackedWidget, QWidget
 
+from apk_hacker.application.services.workbench_settings_service import WorkbenchSettings, WorkbenchSettingsService
 from apk_hacker.infrastructure.integrations.jadx_launcher import open_in_jadx, resolve_jadx_gui_path
 from apk_hacker.interfaces.gui_pyqt.viewmodels import NavigationPage, WorkbenchController, WorkbenchState
 from apk_hacker.interfaces.gui_pyqt.widgets.custom_scripts import CustomScriptsWidget
@@ -38,6 +39,7 @@ class MainWindow(QMainWindow):
         self._jadx_launcher = jadx_launcher or open_in_jadx
 
         repo_root = Path(__file__).resolve().parents[4]
+        resolved_db_root = db_root or (controller.db_root if controller is not None else repo_root / "cache" / "gui")
         if controller is not None:
             self._controller = controller
         else:
@@ -45,8 +47,10 @@ class MainWindow(QMainWindow):
                 fixture_root=fixture_root,
                 jadx_sources_root=jadx_sources_root,
                 scripts_root=scripts_root or repo_root / "user_data" / "frida_plugins" / "custom",
-                db_root=db_root or repo_root / "cache" / "gui",
+                db_root=resolved_db_root,
             )
+        self._settings_service = WorkbenchSettingsService(resolved_db_root / "workbench-settings.json")
+        self._restoring_settings = False
         demo_available = self._controller.demo_available
         self._state = WorkbenchState(
             summary_text="Ready to analyze a sample." if not demo_available else "No analysis run yet."
@@ -91,6 +95,9 @@ class MainWindow(QMainWindow):
             widget.setObjectName(page.object_name)
             self.content_stack.addWidget(widget)
 
+        self._restore_ui_settings()
+        self._connect_settings_autosave()
+
         splitter = QSplitter()
         splitter.addWidget(self.nav_list)
         splitter.addWidget(self.content_stack)
@@ -100,6 +107,56 @@ class MainWindow(QMainWindow):
         self.nav_list.currentRowChanged.connect(self.content_stack.setCurrentIndex)
         self.nav_list.setCurrentRow(0)
         self._sync_ui()
+
+    def _restore_ui_settings(self) -> None:
+        settings = self._settings_service.load()
+        available_modes = {status.key for status in self._state.execution_preset_statuses if status.available}
+        restored_mode = settings.execution_mode if settings.execution_mode in available_modes else "fake_backend"
+        self._restoring_settings = True
+        try:
+            if settings.sample_path:
+                self.task_center.sample_path_input.setText(settings.sample_path)
+            self.task_center.set_runtime_options(
+                settings.device_serial,
+                settings.frida_server_binary_path,
+                settings.frida_server_remote_path,
+                settings.frida_session_seconds,
+            )
+            self._state = replace(
+                self._state,
+                execution_mode=restored_mode,
+                device_serial=settings.device_serial,
+                frida_server_binary_path=settings.frida_server_binary_path,
+                frida_server_remote_path=settings.frida_server_remote_path,
+                frida_session_seconds=settings.frida_session_seconds,
+            )
+        finally:
+            self._restoring_settings = False
+
+    def _connect_settings_autosave(self) -> None:
+        self.task_center.sample_path_input.textChanged.connect(self._persist_ui_settings)
+        self.task_center.device_serial_input.textChanged.connect(self._persist_ui_settings)
+        self.task_center.frida_server_binary_input.textChanged.connect(self._persist_ui_settings)
+        self.task_center.frida_server_remote_path_input.textChanged.connect(self._persist_ui_settings)
+        self.task_center.frida_session_seconds_input.textChanged.connect(self._persist_ui_settings)
+        self.script_plan.execution_mode_combo.currentIndexChanged.connect(self._persist_ui_settings)
+
+    def _persist_ui_settings(self) -> None:
+        if self._restoring_settings:
+            return
+        try:
+            self._settings_service.save(
+                WorkbenchSettings(
+                    sample_path=self.task_center.sample_path_input.text().strip(),
+                    execution_mode=self.script_plan.current_execution_mode(),
+                    device_serial=self.task_center.selected_device_serial(),
+                    frida_server_binary_path=self.task_center.selected_frida_server_binary(),
+                    frida_server_remote_path=self.task_center.selected_frida_server_remote_path(),
+                    frida_session_seconds=self.task_center.selected_frida_session_seconds(),
+                )
+            )
+        except OSError:
+            return
 
     def _pages(self) -> tuple[tuple[NavigationPage, QWidget], ...]:
         return (
@@ -287,3 +344,7 @@ class MainWindow(QMainWindow):
             and self._state.sample_path is not None
             and self._state.static_inputs is not None
         )
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        self._persist_ui_settings()
+        super().closeEvent(event)
