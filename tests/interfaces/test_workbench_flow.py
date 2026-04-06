@@ -104,6 +104,12 @@ class _SequencedRealBackend(ExecutionBackend):
         return next_response
 
 
+class _FailingReportExportService:
+    def export_markdown(self, report, output_path: Path) -> Path:
+        del report, output_path
+        raise OSError("disk full")
+
+
 class _ReadyFridaEnvironmentService:
     def inspect(self) -> EnvironmentSnapshot:
         return EnvironmentSnapshot(
@@ -982,5 +988,48 @@ def test_main_window_exports_markdown_report_from_menu_action(tmp_path: Path) ->
     assert "com.demo.shell" in content
     assert "buildUploadUrl" in content
     assert window.results_summary.copy_report_path_button.isEnabled()
+    assert app is not None
+    window.close()
+
+
+def test_main_window_clears_stale_exported_report_path_after_export_failure(tmp_path: Path) -> None:
+    app = _app()
+    sample_path = tmp_path / "sample.apk"
+    sample_path.write_bytes(b"apk")
+    output_root = tmp_path / "artifacts"
+    fixture_root = Path("tests/fixtures/static_outputs").resolve()
+    jadx_sources = Path("tests/fixtures/jadx_sources").resolve()
+    fake_analyzer = _FakeStaticAnalyzer(
+        StaticArtifacts(
+            output_root=output_root,
+            report_dir=output_root / "报告" / "sample",
+            cache_dir=output_root / "cache" / "sample",
+            analysis_json=fixture_root / "sample_analysis.json",
+            callback_config_json=fixture_root / "sample_callback-config.json",
+            noise_log_json=output_root / "cache" / "sample" / "noise-log.json",
+            jadx_sources_dir=jadx_sources,
+            jadx_project_dir=None,
+        )
+    )
+    controller = WorkbenchController(
+        job_service=JobService(static_analyzer=fake_analyzer),
+        scripts_root=tmp_path / "scripts",
+        db_root=tmp_path,
+    )
+    window = MainWindow(controller=controller)
+
+    window.task_center.sample_path_input.setText(str(sample_path))
+    window.task_center.run_analysis_button.click()
+    window.export_report_action.trigger()
+
+    assert window.results_summary.copy_report_path_button.isEnabled()
+    assert window.results_summary.report_path_label.text().startswith("Exported Report: ")
+
+    window._controller._report_export = _FailingReportExportService()
+    window.export_report_action.trigger()
+
+    assert window.results_summary.report_path_label.text() == "Exported Report: -"
+    assert not window.results_summary.copy_report_path_button.isEnabled()
+    assert "disk full" in window.results_summary.summary_label.text().lower()
     assert app is not None
     window.close()

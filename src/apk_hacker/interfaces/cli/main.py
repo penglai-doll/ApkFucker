@@ -132,6 +132,8 @@ def execute_cli(args: argparse.Namespace, controller: WorkbenchController | None
         state = resolved_controller.run_analysis(state)
     if args.export_report:
         state = resolved_controller.export_report(state)
+        if state.last_export_report_path is None:
+            raise RuntimeError(state.summary_text)
 
     return {
         "job_id": state.current_job.job_id if state.current_job is not None else None,

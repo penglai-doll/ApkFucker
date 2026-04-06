@@ -9,6 +9,7 @@ from apk_hacker.infrastructure.execution.backend import ExecutionBackend
 from apk_hacker.interfaces.cli.main import execute_cli, parse_args
 from apk_hacker.interfaces.gui_pyqt.viewmodels import WorkbenchController
 from apk_hacker.static_engine.analyzer import StaticArtifacts
+from pytest import raises
 
 
 class _FakeStaticAnalyzer:
@@ -28,6 +29,12 @@ class _FakeRealBackend(ExecutionBackend):
     def execute(self, request: ExecutionRequest) -> tuple[HookEvent, ...]:
         self.calls.append(request)
         return self.events
+
+
+class _FailingReportExportService:
+    def export_markdown(self, report, output_path: Path) -> Path:
+        del report, output_path
+        raise OSError("disk full")
 
 
 def _build_controller(tmp_path: Path, real_backend: ExecutionBackend | None = None) -> WorkbenchController:
@@ -211,6 +218,27 @@ def test_execute_cli_can_export_markdown_report(tmp_path: Path) -> None:
     assert report_path.name.endswith("-report.md")
     assert "com.demo.shell" in content
     assert "buildUploadUrl" in content
+
+
+def test_execute_cli_raises_when_report_export_fails(tmp_path: Path) -> None:
+    controller = _build_controller(tmp_path)
+    controller._report_export = _FailingReportExportService()
+    sample_path = tmp_path / "sample.apk"
+    sample_path.write_bytes(b"apk")
+
+    with raises(RuntimeError, match="disk full"):
+        execute_cli(
+            parse_args(
+                [
+                    "--sample",
+                    str(sample_path),
+                    "--method-query",
+                    "buildUploadUrl",
+                    "--export-report",
+                ]
+            ),
+            controller=controller,
+        )
 
 
 def test_execute_cli_main_emits_json_summary(tmp_path: Path, capsys) -> None:

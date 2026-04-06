@@ -438,7 +438,11 @@ class WorkbenchController:
         try:
             exported_path = self._report_export.export_markdown(exportable, report_path)
         except OSError as exc:
-            return replace(state, summary_text=f"Failed to export report: {exc}")
+            return replace(
+                state,
+                last_export_report_path=None,
+                summary_text=f"Failed to export report: {exc}",
+            )
 
         return replace(
             state,
