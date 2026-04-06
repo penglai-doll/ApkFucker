@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 
-from PyQt6.QtWidgets import QLabel, QListWidget, QListWidgetItem, QPlainTextEdit, QVBoxLayout, QWidget
+from PyQt6.QtGui import QGuiApplication
+from PyQt6.QtWidgets import QLabel, QListWidget, QListWidgetItem, QPlainTextEdit, QPushButton, QVBoxLayout, QWidget
 
 from apk_hacker.domain.models.hook_event import HookEvent
 
@@ -18,9 +19,13 @@ class ExecutionLogsWidget(QWidget):
         self.details.setReadOnly(True)
         self.details.setPlaceholderText("Select an event to inspect its arguments, return value, stacktrace, and payload.")
         layout.addWidget(self.details)
+        self.copy_details_button = QPushButton("Copy Event Details")
+        self.copy_details_button.setEnabled(False)
+        layout.addWidget(self.copy_details_button)
         layout.addStretch(1)
         self._events: tuple[HookEvent, ...] = ()
         self.log_list.currentRowChanged.connect(self._sync_details)
+        self.copy_details_button.clicked.connect(self._copy_details)
 
     def set_events(self, events: tuple[HookEvent, ...]) -> None:
         self._events = events
@@ -36,11 +41,13 @@ class ExecutionLogsWidget(QWidget):
             self.log_list.setCurrentRow(0)
         else:
             self.details.setPlainText("")
+            self.copy_details_button.setEnabled(False)
 
     def _sync_details(self) -> None:
         row = self.log_list.currentRow()
         if row < 0 or row >= len(self._events):
             self.details.setPlainText("")
+            self.copy_details_button.setEnabled(False)
             return
         event = self._events[row]
         payload = json.dumps(event.raw_payload, ensure_ascii=False, indent=2)
@@ -61,3 +68,10 @@ class ExecutionLogsWidget(QWidget):
                 )
             )
         )
+        self.copy_details_button.setEnabled(True)
+
+    def _copy_details(self) -> None:
+        details = self.details.toPlainText().strip()
+        if not details:
+            return
+        QGuiApplication.clipboard().setText(details)

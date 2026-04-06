@@ -64,3 +64,31 @@ def test_execution_logs_widget_shows_selected_event_details() -> None:
     assert "builtin.method-hook" in details
     assert app is not None
     widget.close()
+
+
+def test_execution_logs_widget_copies_selected_event_details() -> None:
+    app = _app()
+    widget = ExecutionLogsWidget()
+    widget.set_events(
+        (
+            HookEvent(
+                timestamp="2026-04-06T00:00:00Z",
+                job_id="job-1",
+                event_type="method_call",
+                source="real",
+                class_name="com.demo.net.Config",
+                method_name="buildUploadUrl",
+                arguments=("plaintext",),
+                return_value="ciphertext",
+                stacktrace="com.demo.net.Config.buildUploadUrl:1",
+                raw_payload={"source_script": "02_builduploadurl.js"},
+            ),
+        )
+    )
+
+    widget.log_list.setCurrentRow(0)
+    widget.copy_details_button.click()
+
+    assert "buildUploadUrl" in app.clipboard().text()
+    assert "ciphertext" in app.clipboard().text()
+    widget.close()
