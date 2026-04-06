@@ -127,7 +127,7 @@ uv run apk-hacker --help
 其中后五者会直接调用仓库自带的后端 runner，适合本地逐步验证 `adb / frida` 链路；只有在你想接自定义执行器时，才需要继续使用 `--real-backend-command` 或环境变量覆盖 `Real Device`。
 工作台会根据当前环境自动评估这些预设的可用性：例如缺少 `adb` 时会禁用 `ADB Probe` 和 `Frida Bootstrap`，缺少 Python `frida` 模块时会禁用 `Frida Session`，并在 `Task Center` 里显示每个预设当前是 `ready` 还是 `unavailable`。
 `Real Device` 本身会自动路由到当前最合适的内置后端：优先 `Frida Session`，其次 `Frida Inject`、`Frida Probe`、`ADB Probe`；如果你显式传入 `--real-backend-command`，则优先使用你的自定义后端。
-如果你不想每次都从命令行传参数，工作台的 `Task Center` 里也提供了 `Device Serial` 和 `Frida Server Binary` 两个输入框；它们会直接透传到真实后端执行环境中。
+如果你不想每次都从命令行传参数，工作台的 `Task Center` 里也提供了 `Device Serial`、`Frida Server Binary`、`Frida Remote Path` 和 `Session Seconds` 四个输入框；它们会直接透传到真实后端执行环境中。
 
 ## 执行模式说明
 

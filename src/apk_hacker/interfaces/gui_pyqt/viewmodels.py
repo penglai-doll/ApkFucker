@@ -69,6 +69,8 @@ class WorkbenchState:
     execution_mode: str = "fake_backend"
     device_serial: str = ""
     frida_server_binary_path: str = ""
+    frida_server_remote_path: str = ""
+    frida_session_seconds: str = ""
     selected_custom_script_path: Path | None = None
     custom_script_draft_name: str = ""
     custom_script_draft_content: str = ""
@@ -378,6 +380,10 @@ class WorkbenchController:
             runtime_env["APKHACKER_DEVICE_SERIAL"] = state.device_serial
         if state.frida_server_binary_path:
             runtime_env["APKHACKER_FRIDA_SERVER_BINARY"] = state.frida_server_binary_path
+        if state.frida_server_remote_path:
+            runtime_env["APKHACKER_FRIDA_SERVER_REMOTE_PATH"] = state.frida_server_remote_path
+        if state.frida_session_seconds:
+            runtime_env["APKHACKER_FRIDA_SESSION_SECONDS"] = state.frida_session_seconds
         return ExecutionRequest(
             job_id=state.current_job.job_id,
             plan=state.hook_plan,

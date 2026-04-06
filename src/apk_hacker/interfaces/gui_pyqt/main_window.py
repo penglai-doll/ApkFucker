@@ -115,12 +115,14 @@ class MainWindow(QMainWindow):
         )
 
     def _load_demo_workspace(self) -> None:
-        device_serial, frida_server_binary = self._runtime_inputs()
+        device_serial, frida_server_binary, frida_server_remote_path, frida_session_seconds = self._runtime_inputs()
         if not self._controller.demo_available:
             self._state = WorkbenchState(
                 summary_text="Demo workspace not configured for this build.",
                 device_serial=device_serial,
                 frida_server_binary_path=frida_server_binary,
+                frida_server_remote_path=frida_server_remote_path,
+                frida_session_seconds=frida_session_seconds,
             )
             self._sync_ui()
             return
@@ -129,7 +131,7 @@ class MainWindow(QMainWindow):
         self._sync_ui()
 
     def _load_sample_workspace(self) -> None:
-        device_serial, frida_server_binary = self._runtime_inputs()
+        device_serial, frida_server_binary, frida_server_remote_path, frida_session_seconds = self._runtime_inputs()
         sample_path = self.task_center.selected_sample_path()
         try:
             self._state = self._with_runtime_inputs(self._controller.load_sample_workspace(sample_path))
@@ -139,6 +141,8 @@ class MainWindow(QMainWindow):
                 summary_text=f"Static analysis failed: {exc}",
                 device_serial=device_serial,
                 frida_server_binary_path=frida_server_binary,
+                frida_server_remote_path=frida_server_remote_path,
+                frida_session_seconds=frida_session_seconds,
             )
         self._sync_ui()
 
@@ -202,18 +206,22 @@ class MainWindow(QMainWindow):
     def _change_execution_mode(self, mode: str) -> None:
         self._state = self._controller.set_execution_mode(self._with_runtime_inputs(self._state), mode)
 
-    def _runtime_inputs(self) -> tuple[str, str]:
+    def _runtime_inputs(self) -> tuple[str, str, str, str]:
         return (
             self.task_center.selected_device_serial(),
             self.task_center.selected_frida_server_binary(),
+            self.task_center.selected_frida_server_remote_path(),
+            self.task_center.selected_frida_session_seconds(),
         )
 
     def _with_runtime_inputs(self, state: WorkbenchState) -> WorkbenchState:
-        device_serial, frida_server_binary = self._runtime_inputs()
+        device_serial, frida_server_binary, frida_server_remote_path, frida_session_seconds = self._runtime_inputs()
         return replace(
             state,
             device_serial=device_serial,
             frida_server_binary_path=frida_server_binary,
+            frida_server_remote_path=frida_server_remote_path,
+            frida_session_seconds=frida_session_seconds,
         )
 
     def _open_in_jadx(self) -> None:
@@ -232,7 +240,12 @@ class MainWindow(QMainWindow):
     def _sync_ui(self) -> None:
         current_method = self.method_index.current_method()
         self.task_center.set_job(self._state.current_job, self._state.sample_path)
-        self.task_center.set_runtime_options(self._state.device_serial, self._state.frida_server_binary_path)
+        self.task_center.set_runtime_options(
+            self._state.device_serial,
+            self._state.frida_server_binary_path,
+            self._state.frida_server_remote_path,
+            self._state.frida_session_seconds,
+        )
         self.task_center.set_environment(self._state.environment_snapshot)
         self.task_center.set_execution_presets(self._state.execution_preset_statuses)
         self.static_summary.set_static_inputs(self._state.static_inputs)

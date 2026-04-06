@@ -753,6 +753,8 @@ print(json.dumps({
     "arguments": [
         os.environ.get("APKHACKER_DEVICE_SERIAL", ""),
         os.environ.get("APKHACKER_FRIDA_SERVER_BINARY", ""),
+        os.environ.get("APKHACKER_FRIDA_SERVER_REMOTE_PATH", ""),
+        os.environ.get("APKHACKER_FRIDA_SESSION_SECONDS", ""),
     ],
     "return_value": "ok",
     "stacktrace": ""
@@ -793,6 +795,8 @@ print(json.dumps({
     window.task_center.sample_path_input.setText(str(sample_path))
     window.task_center.device_serial_input.setText("serial-123")
     window.task_center.frida_server_binary_input.setText(str(frida_server_binary))
+    window.task_center.frida_server_remote_path_input.setText("/data/local/tmp/custom-frida-server")
+    window.task_center.frida_session_seconds_input.setText("3.5")
     window.task_center.run_analysis_button.click()
     window.method_index.search_input.setText("buildUploadUrl")
     window.method_index.apply_search()
@@ -802,6 +806,11 @@ print(json.dumps({
     window.script_plan.run_fake_button.click()
 
     assert window.execution_logs.log_list.count() == 1
-    assert window._state.hook_events[0].arguments == ("serial-123", str(frida_server_binary))
+    assert window._state.hook_events[0].arguments == (
+        "serial-123",
+        str(frida_server_binary),
+        "/data/local/tmp/custom-frida-server",
+        "3.5",
+    )
     assert app is not None
     window.close()

@@ -35,6 +35,12 @@ class TaskCenterWidget(QWidget):
         self.frida_server_binary_input = QLineEdit()
         self.frida_server_binary_input.setPlaceholderText("Optional local frida-server binary path")
         input_layout.addRow("Frida Server Binary", self.frida_server_binary_input)
+        self.frida_server_remote_path_input = QLineEdit()
+        self.frida_server_remote_path_input.setPlaceholderText("Optional remote frida-server path on device")
+        input_layout.addRow("Frida Remote Path", self.frida_server_remote_path_input)
+        self.frida_session_seconds_input = QLineEdit()
+        self.frida_session_seconds_input.setPlaceholderText("Optional Frida session seconds, e.g. 2.0")
+        input_layout.addRow("Session Seconds", self.frida_session_seconds_input)
         layout.addWidget(input_box)
 
         actions = QHBoxLayout()
@@ -95,11 +101,27 @@ class TaskCenterWidget(QWidget):
     def selected_frida_server_binary(self) -> str:
         return self.frida_server_binary_input.text().strip()
 
-    def set_runtime_options(self, device_serial: str, frida_server_binary: str) -> None:
+    def selected_frida_server_remote_path(self) -> str:
+        return self.frida_server_remote_path_input.text().strip()
+
+    def selected_frida_session_seconds(self) -> str:
+        return self.frida_session_seconds_input.text().strip()
+
+    def set_runtime_options(
+        self,
+        device_serial: str,
+        frida_server_binary: str,
+        frida_server_remote_path: str,
+        frida_session_seconds: str,
+    ) -> None:
         if self.device_serial_input.text() != device_serial:
             self.device_serial_input.setText(device_serial)
         if self.frida_server_binary_input.text() != frida_server_binary:
             self.frida_server_binary_input.setText(frida_server_binary)
+        if self.frida_server_remote_path_input.text() != frida_server_remote_path:
+            self.frida_server_remote_path_input.setText(frida_server_remote_path)
+        if self.frida_session_seconds_input.text() != frida_session_seconds:
+            self.frida_session_seconds_input.setText(frida_session_seconds)
 
     def set_environment(self, snapshot: EnvironmentSnapshot | None) -> None:
         if snapshot is None:
