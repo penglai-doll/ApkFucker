@@ -32,27 +32,44 @@ class ResultsSummaryWidget(QWidget):
         bundle_actions.addWidget(self.copy_bundle_path_button)
         bundle_actions.addStretch(1)
         layout.addLayout(bundle_actions)
+        self.report_path_label = QLabel("Exported Report: -")
+        self.report_path_label.setWordWrap(True)
+        layout.addWidget(self.report_path_label)
+        report_actions = QHBoxLayout()
+        self.copy_report_path_button = QPushButton("Copy Report Path")
+        self.copy_report_path_button.setEnabled(False)
+        report_actions.addWidget(self.copy_report_path_button)
+        report_actions.addStretch(1)
+        layout.addLayout(report_actions)
         layout.addStretch(1)
         self._db_path: Path | None = None
         self._bundle_path: Path | None = None
+        self._report_path: Path | None = None
         self.copy_db_path_button.clicked.connect(self._copy_db_path)
         self.copy_bundle_path_button.clicked.connect(self._copy_bundle_path)
+        self.copy_report_path_button.clicked.connect(self._copy_report_path)
 
     def set_summary(
         self,
         text: str,
         db_path: Path | None = None,
         bundle_path: Path | None = None,
+        report_path: Path | None = None,
     ) -> None:
         self.summary_label.setText(text)
         self._db_path = db_path
         self._bundle_path = bundle_path
+        self._report_path = report_path
         self.db_path_label.setText(f"Last Run DB: {db_path}" if db_path is not None else "Last Run DB: -")
         self.bundle_path_label.setText(
             f"Execution Bundle: {bundle_path}" if bundle_path is not None else "Execution Bundle: -"
         )
+        self.report_path_label.setText(
+            f"Exported Report: {report_path}" if report_path is not None else "Exported Report: -"
+        )
         self.copy_db_path_button.setEnabled(db_path is not None)
         self.copy_bundle_path_button.setEnabled(bundle_path is not None)
+        self.copy_report_path_button.setEnabled(report_path is not None)
 
     def _copy_db_path(self) -> None:
         if self._db_path is None:
@@ -63,3 +80,8 @@ class ResultsSummaryWidget(QWidget):
         if self._bundle_path is None:
             return
         QGuiApplication.clipboard().setText(str(self._bundle_path))
+
+    def _copy_report_path(self) -> None:
+        if self._report_path is None:
+            return
+        QGuiApplication.clipboard().setText(str(self._report_path))

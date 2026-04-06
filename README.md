@@ -32,6 +32,7 @@
 - 日志事件详情面板
 - 结果页路径一键复制
 - 日志详情一键复制
+- 本地 Markdown 合并报告导出
 
 当前未完成：
 
@@ -140,6 +141,17 @@ uv run apk-hacker-cli \
 
 当 CLI 无法匹配方法、没有计划项却要求执行，或真实后端返回受控错误时，它会向 `stderr` 输出 JSON 错误并以非零退出码结束，方便后续脚本或 CI 直接消费。
 
+如果你希望在 CLI 里顺手导出一份本地 Markdown 报告，可以加上：
+
+```bash
+uv run apk-hacker-cli \
+  --sample /path/to/sample.apk \
+  --method-query buildUploadUrl \
+  --export-report
+```
+
+导出的报告默认会写到 `cache/cli/reports/` 或你自定义的 `--db-root/reports/` 下，CLI 返回的 JSON 里会额外带上 `exported_report_path`。
+
 ## 典型工作流
 
 1. 启动工作台
@@ -151,6 +163,7 @@ uv run apk-hacker-cli \
 7. 需要真机时，可在 `Task Center` 里填写 `Device Serial` 和 `Frida Server Binary`
 8. 用 `Fake Backend` 验证计划、日志与摘要是否符合预期，或切到真实预设
 9. 需要深入看反编译代码时，使用 `Open in JADX`
+10. 如果要落一份本地归档，可直接点菜单里的 `Export Report`
 
 当前 GUI 的执行模式下拉框已经内置这些预设：
 

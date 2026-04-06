@@ -40,6 +40,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--frida-server-remote-path", help="Optional frida-server remote path.")
     parser.add_argument("--frida-session-seconds", type=float, help="Optional Frida session capture window.")
     parser.add_argument("--real-backend-command", help="Optional custom command for real_device mode.")
+    parser.add_argument("--export-report", action="store_true", help="Export a markdown report to the default reports directory.")
     return parser.parse_args(list(argv) if argv is not None else None)
 
 
@@ -129,6 +130,8 @@ def execute_cli(args: argparse.Namespace, controller: WorkbenchController | None
             raise RuntimeError("No hook plan items selected. Use --method-query or --add-top-recommendations.")
         state = resolved_controller.set_execution_mode(state, args.execution_mode)
         state = resolved_controller.run_analysis(state)
+    if args.export_report:
+        state = resolved_controller.export_report(state)
 
     return {
         "job_id": state.current_job.job_id if state.current_job is not None else None,
@@ -146,6 +149,9 @@ def execute_cli(args: argparse.Namespace, controller: WorkbenchController | None
         ),
         "last_execution_bundle_path": (
             str(state.last_execution_bundle_path) if state.last_execution_bundle_path is not None else None
+        ),
+        "exported_report_path": (
+            str(state.last_export_report_path) if state.last_export_report_path is not None else None
         ),
         "summary": state.summary_text,
     }

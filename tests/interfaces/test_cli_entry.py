@@ -186,6 +186,33 @@ def test_execute_cli_runs_real_backend_and_returns_bundle_path(tmp_path: Path) -
     assert result["events"][0]["event_type"] == "runtime_env"
 
 
+def test_execute_cli_can_export_markdown_report(tmp_path: Path) -> None:
+    controller = _build_controller(tmp_path)
+    sample_path = tmp_path / "sample.apk"
+    sample_path.write_bytes(b"apk")
+
+    result = execute_cli(
+        parse_args(
+            [
+                "--sample",
+                str(sample_path),
+                "--method-query",
+                "buildUploadUrl",
+                "--export-report",
+            ]
+        ),
+        controller=controller,
+    )
+
+    report_path = Path(result["exported_report_path"])
+    content = report_path.read_text(encoding="utf-8")
+
+    assert report_path.exists()
+    assert report_path.name.endswith("-report.md")
+    assert "com.demo.shell" in content
+    assert "buildUploadUrl" in content
+
+
 def test_execute_cli_main_emits_json_summary(tmp_path: Path, capsys) -> None:
     controller = _build_controller(tmp_path)
     sample_path = tmp_path / "sample.apk"

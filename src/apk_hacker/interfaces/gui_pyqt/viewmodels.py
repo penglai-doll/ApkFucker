@@ -15,6 +15,7 @@ from apk_hacker.application.services.execution_presets import (
     label_for_preset,
     resolve_real_device_backend,
 )
+from apk_hacker.application.services.report_export_service import ExportableReport, ReportExportService
 from apk_hacker.application.services.hook_plan_service import HookPlanService
 from apk_hacker.application.services.job_service import JobService
 from apk_hacker.application.services.static_adapter import StaticAdapter
@@ -78,6 +79,7 @@ class WorkbenchState:
     run_count: int = 0
     last_execution_db_path: Path | None = None
     last_execution_bundle_path: Path | None = None
+    last_export_report_path: Path | None = None
     summary_text: str = "No analysis run yet."
 
 
@@ -107,6 +109,7 @@ class WorkbenchController:
         self._hook_plan_service = HookPlanService()
         self._traffic_capture_service = TrafficCaptureService()
         self._custom_scripts = CustomScriptService(scripts_root)
+        self._report_export = ReportExportService()
         self._execution_backends = self._build_execution_backends_with_root(db_root, execution_backend_env)
         if execution_backends is not None:
             self._execution_backends.update(execution_backends)
@@ -414,6 +417,34 @@ class WorkbenchController:
             return replace(state, summary_text="Add at least one hook plan item first.")
         events = self._execution_backends["fake_backend"].execute(self._build_execution_request(state))
         return self._persist_execution(state, events, executed_backend_key="fake_backend")
+
+    def export_report(self, state: WorkbenchState) -> WorkbenchState:
+        if state.current_job is None or state.static_inputs is None:
+            return replace(state, summary_text="Load a workspace before exporting a report.")
+
+        report_root = self._db_root / "reports"
+        report_path = report_root / f"{state.current_job.job_id}-report.md"
+        exportable = ExportableReport(
+            job_id=state.current_job.job_id,
+            summary_text=state.summary_text,
+            sample_path=state.sample_path,
+            static_inputs=state.static_inputs,
+            hook_plan=state.hook_plan,
+            hook_events=state.hook_events,
+            traffic_capture=state.traffic_capture,
+            last_execution_db_path=state.last_execution_db_path,
+            last_execution_bundle_path=state.last_execution_bundle_path,
+        )
+        try:
+            exported_path = self._report_export.export_markdown(exportable, report_path)
+        except OSError as exc:
+            return replace(state, summary_text=f"Failed to export report: {exc}")
+
+        return replace(
+            state,
+            last_export_report_path=exported_path,
+            summary_text=f"Exported report to {exported_path}.",
+        )
 
     def _resolve_execution_backend_key(self, state: WorkbenchState) -> str:
         if state.execution_mode != "real_device":

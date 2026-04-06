@@ -60,6 +60,9 @@ class MainWindow(QMainWindow):
         self.open_jadx_action = QAction("Open in JADX", self)
         self.menuBar().addAction(self.open_jadx_action)
         self.open_jadx_action.triggered.connect(self._open_in_jadx)
+        self.export_report_action = QAction("Export Report", self)
+        self.menuBar().addAction(self.export_report_action)
+        self.export_report_action.triggered.connect(self._export_report)
 
         self.nav_list = QListWidget()
         self.content_stack = QStackedWidget()
@@ -207,6 +210,10 @@ class MainWindow(QMainWindow):
         self._state = self._with_runtime_inputs(self._controller.refresh_environment(self._with_runtime_inputs(self._state)))
         self._sync_ui()
 
+    def _export_report(self) -> None:
+        self._state = self._with_runtime_inputs(self._controller.export_report(self._state))
+        self._sync_ui()
+
     def _search_methods(self, query: str) -> None:
         self._state = self._controller.search_methods(self._state, query)
         self.method_index.set_methods(self._state.visible_methods)
@@ -338,8 +345,10 @@ class MainWindow(QMainWindow):
             self._state.summary_text,
             db_path=self._state.last_execution_db_path,
             bundle_path=self._state.last_execution_bundle_path,
+            report_path=self._state.last_export_report_path,
         )
         self.open_jadx_action.setEnabled(self._can_open_in_jadx())
+        self.export_report_action.setEnabled(self._state.current_job is not None and self._state.static_inputs is not None)
 
     def _can_open_in_jadx(self) -> bool:
         return bool(
