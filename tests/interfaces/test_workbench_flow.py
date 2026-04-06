@@ -1,4 +1,5 @@
 from pathlib import Path
+import sys
 
 from PyQt6.QtWidgets import QApplication
 
@@ -9,6 +10,7 @@ from apk_hacker.application.services.job_service import JobService
 from apk_hacker.interfaces.gui_pyqt.main_window import MainWindow
 from apk_hacker.interfaces.gui_pyqt.viewmodels import WorkbenchController
 from apk_hacker.infrastructure.execution.backend import ExecutionBackend
+from apk_hacker.infrastructure.execution.real_backend import RealExecutionBackend
 from apk_hacker.static_engine.analyzer import StaticArtifacts
 from apk_hacker.domain.models.environment import EnvironmentSnapshot, ToolStatus
 
@@ -732,5 +734,74 @@ def test_main_window_reports_auto_routed_real_device_backend(tmp_path: Path) -> 
 
     assert len(preset_backend.calls) == 1
     assert "Real Device -> Frida Session" in window.results_summary.summary_label.text()
+    assert app is not None
+    window.close()
+
+
+def test_main_window_forwards_runtime_device_settings_to_real_backend(tmp_path: Path) -> None:
+    app = _app()
+    helper = tmp_path / "emit_runtime_backend.py"
+    helper.write_text(
+        """
+import json
+import os
+
+print(json.dumps({
+    "event_type": "runtime_env",
+    "class_name": "cli.real",
+    "method_name": "configured",
+    "arguments": [
+        os.environ.get("APKHACKER_DEVICE_SERIAL", ""),
+        os.environ.get("APKHACKER_FRIDA_SERVER_BINARY", ""),
+    ],
+    "return_value": "ok",
+    "stacktrace": ""
+}))
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    sample_path = tmp_path / "sample.apk"
+    sample_path.write_bytes(b"apk")
+    frida_server_binary = tmp_path / "frida-server"
+    frida_server_binary.write_text("fake-binary", encoding="utf-8")
+    output_root = tmp_path / "artifacts"
+    fixture_root = Path("tests/fixtures/static_outputs").resolve()
+    jadx_sources = Path("tests/fixtures/jadx_sources").resolve()
+    fake_analyzer = _FakeStaticAnalyzer(
+        StaticArtifacts(
+            output_root=output_root,
+            report_dir=output_root / "报告" / "sample",
+            cache_dir=output_root / "cache" / "sample",
+            analysis_json=fixture_root / "sample_analysis.json",
+            callback_config_json=fixture_root / "sample_callback-config.json",
+            noise_log_json=output_root / "cache" / "sample" / "noise-log.json",
+            jadx_sources_dir=jadx_sources,
+            jadx_project_dir=None,
+        )
+    )
+    controller = WorkbenchController(
+        job_service=JobService(static_analyzer=fake_analyzer),
+        scripts_root=tmp_path / "scripts",
+        db_root=tmp_path,
+        execution_backends={
+            "real_device": RealExecutionBackend(command=f"{sys.executable} {helper}"),
+        },
+    )
+    window = MainWindow(controller=controller)
+
+    window.task_center.sample_path_input.setText(str(sample_path))
+    window.task_center.device_serial_input.setText("serial-123")
+    window.task_center.frida_server_binary_input.setText(str(frida_server_binary))
+    window.task_center.run_analysis_button.click()
+    window.method_index.search_input.setText("buildUploadUrl")
+    window.method_index.apply_search()
+    window.method_index.method_list.setCurrentRow(0)
+    window.method_index.add_selected_button.click()
+    window.script_plan.execution_mode_combo.setCurrentText("Real Device")
+    window.script_plan.run_fake_button.click()
+
+    assert window.execution_logs.log_list.count() == 1
+    assert window._state.hook_events[0].arguments == ("serial-123", str(frida_server_binary))
     assert app is not None
     window.close()

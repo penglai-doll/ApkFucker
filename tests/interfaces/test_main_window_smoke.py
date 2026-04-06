@@ -60,6 +60,8 @@ def test_main_window_disables_demo_loading_without_fixture_sources() -> None:
     assert window.task_center.run_analysis_button.isEnabled()
     assert window.task_center.refresh_environment_button.isEnabled()
     assert window.task_center.environment_summary_value.text()
+    assert window.task_center.device_serial_input.placeholderText()
+    assert window.task_center.frida_server_binary_input.placeholderText()
     assert not window.task_center.load_demo_button.isEnabled()
     assert "ready to analyze" in window.results_summary.summary_label.text().lower()
 

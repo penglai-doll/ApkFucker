@@ -29,6 +29,12 @@ class TaskCenterWidget(QWidget):
         self.sample_path_input = QLineEdit()
         self.sample_path_input.setPlaceholderText("/samples/demo.apk")
         input_layout.addRow("Sample Path", self.sample_path_input)
+        self.device_serial_input = QLineEdit()
+        self.device_serial_input.setPlaceholderText("Optional adb serial, e.g. emulator-5554")
+        input_layout.addRow("Device Serial", self.device_serial_input)
+        self.frida_server_binary_input = QLineEdit()
+        self.frida_server_binary_input.setPlaceholderText("Optional local frida-server binary path")
+        input_layout.addRow("Frida Server Binary", self.frida_server_binary_input)
         layout.addWidget(input_box)
 
         actions = QHBoxLayout()
@@ -82,6 +88,18 @@ class TaskCenterWidget(QWidget):
 
     def set_analysis_available(self, available: bool) -> None:
         self.run_analysis_button.setEnabled(available)
+
+    def selected_device_serial(self) -> str:
+        return self.device_serial_input.text().strip()
+
+    def selected_frida_server_binary(self) -> str:
+        return self.frida_server_binary_input.text().strip()
+
+    def set_runtime_options(self, device_serial: str, frida_server_binary: str) -> None:
+        if self.device_serial_input.text() != device_serial:
+            self.device_serial_input.setText(device_serial)
+        if self.frida_server_binary_input.text() != frida_server_binary:
+            self.frida_server_binary_input.setText(frida_server_binary)
 
     def set_environment(self, snapshot: EnvironmentSnapshot | None) -> None:
         if snapshot is None:

@@ -136,6 +136,7 @@ class CommandExecutionRunner:
 
             env = os.environ.copy()
             env.update(self._extra_env)
+            env.update(request.runtime_env)
             env.update(
                 {
                     "APKHACKER_JOB_ID": request.job_id,

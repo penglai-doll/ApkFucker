@@ -67,6 +67,8 @@ class WorkbenchState:
     execution_preset_statuses: tuple[ExecutionPresetStatus, ...] = ()
     custom_scripts: tuple[CustomScriptRecord, ...] = ()
     execution_mode: str = "fake_backend"
+    device_serial: str = ""
+    frida_server_binary_path: str = ""
     selected_custom_script_path: Path | None = None
     custom_script_draft_name: str = ""
     custom_script_draft_content: str = ""
@@ -371,11 +373,17 @@ class WorkbenchController:
     def _build_execution_request(state: WorkbenchState) -> ExecutionRequest:
         if state.current_job is None:
             raise RuntimeError("Execution request requires a current job.")
+        runtime_env: dict[str, str] = {}
+        if state.device_serial:
+            runtime_env["APKHACKER_DEVICE_SERIAL"] = state.device_serial
+        if state.frida_server_binary_path:
+            runtime_env["APKHACKER_FRIDA_SERVER_BINARY"] = state.frida_server_binary_path
         return ExecutionRequest(
             job_id=state.current_job.job_id,
             plan=state.hook_plan,
             package_name=state.static_inputs.package_name if state.static_inputs is not None else None,
             sample_path=state.sample_path,
+            runtime_env=runtime_env,
         )
 
     def _persist_execution(
