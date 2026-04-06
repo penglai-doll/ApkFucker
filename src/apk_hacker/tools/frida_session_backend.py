@@ -109,6 +109,21 @@ def _session_error_event(
     return event
 
 
+def _session_status_event(
+    step: str,
+    target_package: str,
+    detail: str,
+) -> dict[str, object]:
+    return {
+        "event_type": "frida_session_status",
+        "class_name": "frida",
+        "method_name": step,
+        "arguments": (target_package,),
+        "return_value": detail,
+        "stacktrace": "",
+    }
+
+
 def _emit_events(events: list[dict[str, object]]) -> int:
     for event in events:
         print(json.dumps(event, ensure_ascii=False))
@@ -186,17 +201,27 @@ def main() -> int:
             events.append(_session_error_event("device_connect", target_package, str(retry_exc)))
             return _emit_events(events)
 
+    should_resume = True
     try:
         pid = device.spawn([target_package])
+        attach_target: object = pid
     except Exception as exc:
-        events.append(_session_error_event("spawn", target_package, str(exc)))
-        return _emit_events(events)
-
-    try:
-        session = device.attach(pid)
-    except Exception as exc:
-        events.append(_session_error_event("attach", target_package, str(exc)))
-        return _emit_events(events)
+        try:
+            attach_target = target_package
+            session = device.attach(attach_target)
+            should_resume = False
+            events.append(_session_status_event("attach_fallback", target_package, str(exc)))
+        except Exception as attach_exc:
+            events.append(
+                _session_error_event("spawn", target_package, f"{exc}; attach fallback failed: {attach_exc}")
+            )
+            return _emit_events(events)
+    else:
+        try:
+            session = device.attach(attach_target)
+        except Exception as exc:
+            events.append(_session_error_event("attach", target_package, str(exc)))
+            return _emit_events(events)
 
     for script_path in script_paths:
         def on_message(message: dict[str, Any], data: Any, *, _script_name: str = script_path.name) -> None:
@@ -216,15 +241,16 @@ def main() -> int:
             except Exception as detach_exc:
                 events.append(_session_error_event("detach", target_package, str(detach_exc)))
             return _emit_events(events)
-    try:
-        device.resume(pid)
-    except Exception as exc:
-        events.append(_session_error_event("resume", target_package, str(exc)))
+    if should_resume:
         try:
-            session.detach()
-        except Exception as detach_exc:
-            events.append(_session_error_event("detach", target_package, str(detach_exc)))
-        return _emit_events(events)
+            device.resume(pid)
+        except Exception as exc:
+            events.append(_session_error_event("resume", target_package, str(exc)))
+            try:
+                session.detach()
+            except Exception as detach_exc:
+                events.append(_session_error_event("detach", target_package, str(detach_exc)))
+            return _emit_events(events)
 
     try:
         time.sleep(_session_seconds())

@@ -822,3 +822,128 @@ exit 1
         "device.resume",
         "session.detach",
     ]
+
+
+def test_packaged_frida_session_backend_falls_back_to_attach_when_spawn_fails(tmp_path: Path) -> None:
+    state_file = tmp_path / "fake-frida-attach-fallback.jsonl"
+    module_path = tmp_path / "frida.py"
+    module_path.write_text(
+        """
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+
+
+STATE_PATH = Path(os.environ["APKHACKER_FAKE_FRIDA_STATE"])
+
+
+def _append(record: dict[str, object]) -> None:
+    with STATE_PATH.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, ensure_ascii=False) + "\\n")
+
+
+class FakeScript:
+    def __init__(self, source: str) -> None:
+        self._source = source
+        self._callback = None
+
+    def on(self, event_name: str, callback) -> None:
+        _append({"op": "script.on", "event_name": event_name})
+        self._callback = callback
+
+    def load(self) -> None:
+        _append({"op": "script.load", "source_length": len(self._source)})
+        payload = json.dumps(
+            {
+                "event_type": "method_call",
+                "class_name": "com.demo.net.Config",
+                "method_name": "buildUploadUrl",
+                "arguments": ["attach-fallback"],
+                "return_value": "ok",
+                "stacktrace": "com.demo.net.Config.buildUploadUrl:1",
+            },
+            ensure_ascii=False,
+        )
+        self._callback({"type": "send", "payload": payload}, None)
+
+
+class FakeSession:
+    def create_script(self, source: str) -> FakeScript:
+        _append({"op": "session.create_script"})
+        return FakeScript(source)
+
+    def detach(self) -> None:
+        _append({"op": "session.detach"})
+
+
+class FakeDevice:
+    def spawn(self, argv: list[str]) -> int:
+        _append({"op": "device.spawn", "argv": argv})
+        raise RuntimeError("spawn blocked")
+
+    def attach(self, target) -> FakeSession:
+        _append({"op": "device.attach", "target": target})
+        return FakeSession()
+
+    def resume(self, pid: int) -> None:
+        _append({"op": "device.resume", "pid": pid})
+
+
+def get_usb_device(timeout: int | None = None) -> FakeDevice:
+    _append({"op": "frida.get_usb_device", "timeout": timeout})
+    return FakeDevice()
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    pythonpath = os.environ.get("PYTHONPATH", "")
+    env_pythonpath = f"{tmp_path}:{pythonpath}" if pythonpath else str(tmp_path)
+    method = MethodIndexEntry(
+        class_name="com.demo.net.Config",
+        method_name="buildUploadUrl",
+        parameter_types=("String",),
+        return_type="String",
+        is_constructor=False,
+        overload_count=1,
+        source_path="sources/com/demo/net/Config.java",
+        line_hint=4,
+    )
+    plan = HookPlanService().plan_for_methods([method])
+    backend = RealExecutionBackend(
+        command=f"{sys.executable} -m apk_hacker.tools.frida_session_backend",
+        extra_env={
+            "PYTHONPATH": env_pythonpath,
+            "APKHACKER_FAKE_FRIDA_STATE": str(state_file),
+            "APKHACKER_FRIDA_SESSION_SECONDS": "0.1",
+        },
+    )
+
+    events = backend.execute(
+        ExecutionRequest(
+            job_id="job-1",
+            plan=plan,
+            package_name="com.demo.shell",
+        )
+    )
+
+    records = [
+        json.loads(line)
+        for line in state_file.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert [record["op"] for record in records] == [
+        "frida.get_usb_device",
+        "device.spawn",
+        "device.attach",
+        "session.create_script",
+        "script.on",
+        "script.load",
+        "session.detach",
+    ]
+    assert records[2]["target"] == "com.demo.shell"
+    assert events[0].event_type == "frida_session_status"
+    assert events[0].method_name == "attach_fallback"
+    assert events[-1].event_type == "method_call"
+    assert events[-1].arguments == ("attach-fallback",)

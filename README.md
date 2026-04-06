@@ -226,6 +226,7 @@ uv run apk-hacker \
 如果会话期间没有收到脚本消息，会回传 `frida_session_timeout`；如果连接设备、加载脚本或恢复进程失败，会回传 `frida_session_error`，便于在工作台里区分“链路不通”和“脚本本身没产生日志”。
 当你提供 `--frida-server-binary` 时，`Frida Session` 还会在第一次 `get_usb_device()` 失败后自动尝试 bootstrap，再重试一次 USB 连接。
 如果当前样本 APK 尚未安装到目标设备，`Frida Session` 还会在会话开始前尝试用 `adb install -r` 自动补装；只有真正发生安装或安装失败时，才会额外回传 `app_install_status` / `app_install_error` 事件。
+如果 `spawn` 当前目标包失败，`Frida Session` 还会自动尝试 `attach(package)` 方式降级接入，并回传 `frida_session_status / attach_fallback`，这样对“只能附加、不能直接拉起”的目标更友好。
 
 ## 目录说明
 
@@ -248,7 +249,7 @@ uv run pytest -q
 
 当前分支验证结果为：
 
-- `111 passed`
+- `112 passed`
 
 ## 注意事项
 
