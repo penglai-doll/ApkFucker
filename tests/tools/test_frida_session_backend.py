@@ -662,3 +662,163 @@ exit 1
     ]
     assert events[-1].event_type == "method_call"
     assert events[-1].arguments == ("bootstrap",)
+
+
+def test_packaged_frida_session_backend_installs_sample_when_package_is_missing(tmp_path: Path) -> None:
+    frida_state = tmp_path / "fake-frida-install.jsonl"
+    adb_state = tmp_path / "fake-adb-install.jsonl"
+    module_path = tmp_path / "frida.py"
+    module_path.write_text(
+        """
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+
+
+STATE_PATH = Path(os.environ["APKHACKER_FAKE_FRIDA_STATE"])
+
+
+def _append(record: dict[str, object]) -> None:
+    with STATE_PATH.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, ensure_ascii=False) + "\\n")
+
+
+class FakeScript:
+    def __init__(self, source: str) -> None:
+        self._source = source
+        self._callback = None
+
+    def on(self, event_name: str, callback) -> None:
+        _append({"op": "script.on", "event_name": event_name})
+        self._callback = callback
+
+    def load(self) -> None:
+        _append({"op": "script.load", "source_length": len(self._source)})
+        payload = json.dumps(
+            {
+                "event_type": "method_call",
+                "class_name": "com.demo.net.Config",
+                "method_name": "buildUploadUrl",
+                "arguments": ["install"],
+                "return_value": "ok",
+                "stacktrace": "com.demo.net.Config.buildUploadUrl:1",
+            },
+            ensure_ascii=False,
+        )
+        self._callback({"type": "send", "payload": payload}, None)
+
+
+class FakeSession:
+    def create_script(self, source: str) -> FakeScript:
+        _append({"op": "session.create_script"})
+        return FakeScript(source)
+
+    def detach(self) -> None:
+        _append({"op": "session.detach"})
+
+
+class FakeDevice:
+    def spawn(self, argv: list[str]) -> int:
+        _append({"op": "device.spawn", "argv": argv})
+        return 5151
+
+    def attach(self, pid: int) -> FakeSession:
+        _append({"op": "device.attach", "pid": pid})
+        return FakeSession()
+
+    def resume(self, pid: int) -> None:
+        _append({"op": "device.resume", "pid": pid})
+
+
+def get_usb_device(timeout: int | None = None) -> FakeDevice:
+    _append({"op": "frida.get_usb_device", "timeout": timeout})
+    return FakeDevice()
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    adb_path = tmp_path / "adb"
+    sample_path = tmp_path / "sample.apk"
+    sample_path.write_bytes(b"apk")
+    adb_path.write_text(
+        f"""#!/bin/sh
+STATE_FILE="{adb_state}"
+append() {{
+  printf '%s\\n' "$1" >> "$STATE_FILE"
+}}
+if [ "$1" = "devices" ]; then
+  printf 'List of devices attached\\nserial-123\\tdevice\\n'
+  exit 0
+fi
+if [ "$1" = "-s" ] && [ "$2" = "serial-123" ] && [ "$3" = "shell" ] && [ "$4" = "pm" ] && [ "$5" = "path" ] && [ "$6" = "com.demo.shell" ]; then
+  append "pm-path:$6"
+  exit 0
+fi
+if [ "$1" = "-s" ] && [ "$2" = "serial-123" ] && [ "$3" = "install" ] && [ "$4" = "-r" ] && [ "$5" = "{sample_path}" ]; then
+  append "install:$5"
+  printf 'Success\\n'
+  exit 0
+fi
+exit 1
+""",
+        encoding="utf-8",
+    )
+    adb_path.chmod(0o755)
+    pythonpath = os.environ.get("PYTHONPATH", "")
+    env_pythonpath = f"{tmp_path}:{pythonpath}" if pythonpath else str(tmp_path)
+    env_path = f"{tmp_path}:{os.environ['PATH']}"
+    method = MethodIndexEntry(
+        class_name="com.demo.net.Config",
+        method_name="buildUploadUrl",
+        parameter_types=("String",),
+        return_type="String",
+        is_constructor=False,
+        overload_count=1,
+        source_path="sources/com/demo/net/Config.java",
+        line_hint=4,
+    )
+    plan = HookPlanService().plan_for_methods([method])
+    backend = RealExecutionBackend(
+        command=f"{sys.executable} -m apk_hacker.tools.frida_session_backend",
+        extra_env={
+            "PATH": env_path,
+            "PYTHONPATH": env_pythonpath,
+            "APKHACKER_FAKE_FRIDA_STATE": str(frida_state),
+            "APKHACKER_DEVICE_SERIAL": "serial-123",
+            "APKHACKER_FRIDA_SESSION_SECONDS": "0.1",
+        },
+    )
+
+    events = backend.execute(
+        ExecutionRequest(
+            job_id="job-1",
+            plan=plan,
+            package_name="com.demo.shell",
+            sample_path=sample_path,
+        )
+    )
+
+    adb_records = [line.strip() for line in adb_state.read_text(encoding="utf-8").splitlines() if line.strip()]
+    frida_records = [
+        json.loads(line)
+        for line in frida_state.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert adb_records == [
+        "pm-path:com.demo.shell",
+        f"install:{sample_path}",
+    ]
+    assert [event.event_type for event in events[:1]] == ["app_install_status"]
+    assert events[0].return_value == "installed"
+    assert [record["op"] for record in frida_records] == [
+        "frida.get_usb_device",
+        "device.spawn",
+        "device.attach",
+        "session.create_script",
+        "script.on",
+        "script.load",
+        "device.resume",
+        "session.detach",
+    ]

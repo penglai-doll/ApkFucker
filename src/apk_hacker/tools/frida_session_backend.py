@@ -7,7 +7,15 @@ from pathlib import Path
 import time
 from typing import Any
 
-from apk_hacker.tools.frida_bootstrap_backend import FRIDA_SERVER_BINARY_ENV, bootstrap_succeeded, collect_bootstrap_events
+from apk_hacker.tools.frida_bootstrap_backend import (
+    FRIDA_SERVER_BINARY_ENV,
+    bootstrap_succeeded,
+    collect_bootstrap_events,
+    install_apk,
+    list_connected_devices,
+    package_path,
+    pick_device_serial,
+)
 
 
 def _require_env(name: str) -> str:
@@ -107,6 +115,40 @@ def _emit_events(events: list[dict[str, object]]) -> int:
     return 0
 
 
+def _install_status_event(
+    target_package: str,
+    sample_path: Path,
+    detail: str,
+    event_type: str = "app_install_status",
+) -> dict[str, object]:
+    return {
+        "event_type": event_type,
+        "class_name": "adb.package",
+        "method_name": target_package,
+        "arguments": (str(sample_path),),
+        "return_value": detail,
+        "stacktrace": "",
+    }
+
+
+def _maybe_install_sample(target_package: str, events: list[dict[str, object]]) -> None:
+    raw_sample_path = os.environ.get("APKHACKER_SAMPLE_PATH", "").strip()
+    if not raw_sample_path:
+        return
+    sample_path = Path(raw_sample_path).expanduser().resolve()
+    if not sample_path.exists():
+        events.append(_install_status_event(target_package, sample_path, "missing-sample", event_type="app_install_error"))
+        return
+    try:
+        serial = pick_device_serial(list_connected_devices())
+        if package_path(serial, target_package) is not None:
+            return
+        install_apk(serial, sample_path)
+        events.append(_install_status_event(target_package, sample_path, "installed"))
+    except Exception as exc:
+        events.append(_install_status_event(target_package, sample_path, str(exc), event_type="app_install_error"))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="apk-hacker-frida-session-backend",
@@ -119,6 +161,7 @@ def main() -> int:
     script_paths = _select_scripts(scripts_dir)
 
     events: list[dict[str, object]] = []
+    _maybe_install_sample(target_package, events)
     try:
         frida = _load_frida_module()
     except Exception as exc:
