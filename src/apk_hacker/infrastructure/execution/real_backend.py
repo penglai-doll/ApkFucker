@@ -177,6 +177,10 @@ class RealExecutionBackend(ExecutionBackend):
             resolved_runner = CommandExecutionRunner(resolved_command, extra_env=extra_env)
         self._runner = resolved_runner
 
+    @property
+    def configured(self) -> bool:
+        return self._runner is not None
+
     def execute(self, request: ExecutionRequest) -> tuple[HookEvent, ...]:
         if self._runner is None:
             raise ExecutionBackendUnavailable(

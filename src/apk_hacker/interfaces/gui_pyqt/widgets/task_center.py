@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from apk_hacker.application.services.execution_presets import ExecutionPresetStatus
 from apk_hacker.domain.models.job import AnalysisJob
 from apk_hacker.domain.models.environment import EnvironmentSnapshot
 
@@ -53,9 +54,12 @@ class TaskCenterWidget(QWidget):
         self.environment_summary_value = QLabel("Not checked yet")
         self.environment_details_value = QLabel("-")
         self.environment_details_value.setWordWrap(True)
+        self.execution_presets_value = QLabel("-")
+        self.execution_presets_value.setWordWrap(True)
         self.refresh_environment_button = QPushButton("Refresh Environment")
         environment_layout.addRow("Summary", self.environment_summary_value)
         environment_layout.addRow("Tools", self.environment_details_value)
+        environment_layout.addRow("Execution Presets", self.execution_presets_value)
         environment_layout.addRow("", self.refresh_environment_button)
         layout.addWidget(environment_box)
         layout.addStretch(1)
@@ -91,3 +95,11 @@ class TaskCenterWidget(QWidget):
             value = tool.path if tool.available and tool.path is not None else "missing"
             detail_lines.append(f"{tool.label}: {value}")
         self.environment_details_value.setText("\n".join(detail_lines))
+
+    def set_execution_presets(self, statuses: tuple[ExecutionPresetStatus, ...]) -> None:
+        if not statuses:
+            self.execution_presets_value.setText("-")
+            return
+        self.execution_presets_value.setText(
+            "\n".join(f"{status.label}: {status.detail}" for status in statuses)
+        )

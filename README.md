@@ -114,6 +114,7 @@ uv run apk-hacker --help
 - `Frida Session`
 
 其中后四者会直接调用仓库自带的后端 runner，适合本地逐步验证 `adb / frida` 链路；只有在你想接自定义执行器时，才需要继续使用 `--real-backend-command` 或环境变量覆盖 `Real Device`。
+工作台会根据当前环境自动评估这些预设的可用性：例如缺少 `adb` 时会禁用 `ADB Probe`，缺少 Python `frida` 模块时会禁用 `Frida Session`，并在 `Task Center` 里显示每个预设当前是 `ready` 还是 `unavailable`。
 
 ## 执行模式说明
 

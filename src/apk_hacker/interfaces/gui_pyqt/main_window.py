@@ -211,6 +211,7 @@ class MainWindow(QMainWindow):
         current_method = self.method_index.current_method()
         self.task_center.set_job(self._state.current_job, self._state.sample_path)
         self.task_center.set_environment(self._state.environment_snapshot)
+        self.task_center.set_execution_presets(self._state.execution_preset_statuses)
         self.static_summary.set_static_inputs(self._state.static_inputs)
         self.method_index.set_methods(self._state.visible_methods, preferred_method=current_method)
         current_recommendation = self.hook_assistant.current_recommendation()
@@ -223,6 +224,7 @@ class MainWindow(QMainWindow):
         )
         if self.method_index.search_input.text() != self._state.search_query:
             self.method_index.search_input.setText(self._state.search_query)
+        self.script_plan.set_execution_presets(self._state.execution_preset_statuses, self._state.execution_mode)
         self.script_plan.set_plan(self._state.hook_plan)
         self.script_plan.set_execution_mode(self._state.execution_mode)
         self.custom_scripts.set_scripts(

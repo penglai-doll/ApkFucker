@@ -22,12 +22,16 @@ class _FakeEnvironmentService:
                 tools=(
                     ToolStatus(name="jadx", label="jadx", available=True, path="/opt/tools/jadx"),
                     ToolStatus(name="adb", label="adb", available=False, path=None),
+                    ToolStatus(name="frida", label="frida", available=False, path=None),
+                    ToolStatus(name="python-frida", label="python-frida", available=False, path=None),
                 )
             )
         return EnvironmentSnapshot(
             tools=(
                 ToolStatus(name="jadx", label="jadx", available=True, path="/opt/tools/jadx"),
                 ToolStatus(name="adb", label="adb", available=True, path="/opt/android/adb"),
+                ToolStatus(name="frida", label="frida", available=True, path="/opt/homebrew/bin/frida"),
+                ToolStatus(name="python-frida", label="python-frida", available=True, path="module:frida"),
             )
         )
 
@@ -44,10 +48,20 @@ def test_main_window_refreshes_environment_status(tmp_path: Path) -> None:
 
     assert "1 available" in window.task_center.environment_summary_value.text().lower()
     assert "adb: missing" in window.task_center.environment_details_value.text().lower()
+    assert "ADB Probe: unavailable" in window.task_center.execution_presets_value.text()
+    assert "Frida Session: unavailable" in window.task_center.execution_presets_value.text()
+    adb_probe_index = window.script_plan.execution_mode_combo.findData("real_adb_probe")
+    frida_session_index = window.script_plan.execution_mode_combo.findData("real_frida_session")
+    assert not window.script_plan.execution_mode_combo.model().item(adb_probe_index).isEnabled()
+    assert not window.script_plan.execution_mode_combo.model().item(frida_session_index).isEnabled()
 
     window.task_center.refresh_environment_button.click()
 
-    assert "2 available" in window.task_center.environment_summary_value.text().lower()
+    assert "4 available" in window.task_center.environment_summary_value.text().lower()
     assert "adb: /opt/android/adb" in window.task_center.environment_details_value.text().lower()
+    assert "ADB Probe: ready" in window.task_center.execution_presets_value.text()
+    assert "Frida Session: ready" in window.task_center.execution_presets_value.text()
+    assert window.script_plan.execution_mode_combo.model().item(adb_probe_index).isEnabled()
+    assert window.script_plan.execution_mode_combo.model().item(frida_session_index).isEnabled()
     assert app is not None
     window.close()

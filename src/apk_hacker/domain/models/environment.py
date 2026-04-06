@@ -15,6 +15,9 @@ class ToolStatus:
 class EnvironmentSnapshot:
     tools: tuple[ToolStatus, ...]
 
+    def tool_available(self, name: str) -> bool:
+        return any(tool.name == name and tool.available for tool in self.tools)
+
     @property
     def available_count(self) -> int:
         return sum(1 for tool in self.tools if tool.available)

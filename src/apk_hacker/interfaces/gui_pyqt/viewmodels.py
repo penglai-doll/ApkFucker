@@ -7,7 +7,7 @@ import sys
 
 from apk_hacker.application.services.custom_script_service import CustomScriptRecord, CustomScriptService
 from apk_hacker.application.services.environment_service import EnvironmentService
-from apk_hacker.application.services.execution_presets import EXECUTION_PRESETS
+from apk_hacker.application.services.execution_presets import EXECUTION_PRESETS, ExecutionPresetStatus, build_execution_preset_statuses
 from apk_hacker.application.services.hook_plan_service import HookPlanService
 from apk_hacker.application.services.job_service import JobService
 from apk_hacker.application.services.static_adapter import StaticAdapter
@@ -57,6 +57,7 @@ class WorkbenchState:
     hook_events: tuple[HookEvent, ...] = ()
     traffic_capture: TrafficCapture | None = None
     environment_snapshot: EnvironmentSnapshot | None = None
+    execution_preset_statuses: tuple[ExecutionPresetStatus, ...] = ()
     custom_scripts: tuple[CustomScriptRecord, ...] = ()
     execution_mode: str = "fake_backend"
     selected_custom_script_path: Path | None = None
@@ -100,6 +101,20 @@ class WorkbenchController:
     def demo_available(self) -> bool:
         return self._fixture_root is not None and self._jadx_sources_root is not None
 
+    def _inspect_environment(self) -> tuple[EnvironmentSnapshot, tuple[ExecutionPresetStatus, ...]]:
+        snapshot = self._environment_service.inspect()
+        runtime_availability: dict[str, bool] = {}
+        for preset in EXECUTION_PRESETS:
+            backend = self._execution_backends.get(preset.key)
+            if backend is None:
+                runtime_availability[preset.key] = False
+            elif isinstance(backend, RealExecutionBackend):
+                runtime_availability[preset.key] = backend.configured
+            else:
+                runtime_availability[preset.key] = True
+        statuses = build_execution_preset_statuses(snapshot, runtime_availability=runtime_availability)
+        return snapshot, statuses
+
     @staticmethod
     def _build_execution_backends() -> dict[str, ExecutionBackend]:
         command_modules = {
@@ -120,12 +135,16 @@ class WorkbenchController:
         return backends
 
     def refresh_environment(self, state: WorkbenchState, announce: bool = True) -> WorkbenchState:
-        snapshot = self._environment_service.inspect()
+        snapshot, statuses = self._inspect_environment()
         if not announce:
-            return replace(state, environment_snapshot=snapshot)
+            next_mode = state.execution_mode
+            if not any(status.key == next_mode and status.available for status in statuses):
+                next_mode = "fake_backend"
+            return replace(state, environment_snapshot=snapshot, execution_preset_statuses=statuses, execution_mode=next_mode)
         return replace(
             state,
             environment_snapshot=snapshot,
+            execution_preset_statuses=statuses,
             summary_text=f"Environment refreshed: {snapshot.summary}.",
         )
 
@@ -153,6 +172,7 @@ class WorkbenchController:
         custom_scripts = tuple(self._custom_scripts.discover())
         visible_methods = method_index.methods
         hook_recommendations = self._hook_advisor.recommend(static_inputs, method_index)
+        snapshot, statuses = self._inspect_environment()
 
         return WorkbenchState(
             sample_path=sample_path,
@@ -161,6 +181,8 @@ class WorkbenchController:
             method_index=method_index,
             visible_methods=visible_methods,
             hook_recommendations=hook_recommendations,
+            environment_snapshot=snapshot,
+            execution_preset_statuses=statuses,
             custom_scripts=custom_scripts,
             custom_script_draft_name=custom_scripts[0].name if custom_scripts else "",
             custom_script_draft_content=self._custom_scripts.read_script(custom_scripts[0]) if custom_scripts else "",
@@ -175,6 +197,7 @@ class WorkbenchController:
         )
         custom_scripts = tuple(self._custom_scripts.discover())
         hook_recommendations = self._hook_advisor.recommend(static_inputs, method_index)
+        snapshot, statuses = self._inspect_environment()
         return WorkbenchState(
             sample_path=sample_path,
             current_job=job,
@@ -182,6 +205,8 @@ class WorkbenchController:
             method_index=method_index,
             visible_methods=method_index.methods,
             hook_recommendations=hook_recommendations,
+            environment_snapshot=snapshot,
+            execution_preset_statuses=statuses,
             custom_scripts=custom_scripts,
             custom_script_draft_name=custom_scripts[0].name if custom_scripts else "",
             custom_script_draft_content=self._custom_scripts.read_script(custom_scripts[0]) if custom_scripts else "",
@@ -270,6 +295,10 @@ class WorkbenchController:
         )
 
     def set_execution_mode(self, state: WorkbenchState, mode: str) -> WorkbenchState:
+        if state.execution_preset_statuses and not any(
+            status.key == mode and status.available for status in state.execution_preset_statuses
+        ):
+            return replace(state, summary_text=f"Execution mode {mode} is not ready on this machine.")
         return replace(state, execution_mode=mode)
 
     def run_analysis(self, state: WorkbenchState) -> WorkbenchState:

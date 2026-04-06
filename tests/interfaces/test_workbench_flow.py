@@ -10,6 +10,7 @@ from apk_hacker.interfaces.gui_pyqt.main_window import MainWindow
 from apk_hacker.interfaces.gui_pyqt.viewmodels import WorkbenchController
 from apk_hacker.infrastructure.execution.backend import ExecutionBackend
 from apk_hacker.static_engine.analyzer import StaticArtifacts
+from apk_hacker.domain.models.environment import EnvironmentSnapshot, ToolStatus
 
 
 def _app() -> QApplication:
@@ -86,6 +87,20 @@ class _FakeRealBackend(ExecutionBackend):
     def execute(self, request: ExecutionRequest) -> tuple[HookEvent, ...]:
         self.calls.append(request)
         return self.events
+
+
+class _ReadyFridaEnvironmentService:
+    def inspect(self) -> EnvironmentSnapshot:
+        return EnvironmentSnapshot(
+            tools=(
+                ToolStatus(name="jadx", label="jadx", available=True, path="/opt/tools/jadx"),
+                ToolStatus(name="jadx-gui", label="jadx-gui", available=True, path="/opt/tools/jadx-gui"),
+                ToolStatus(name="apktool", label="apktool", available=True, path="/opt/tools/apktool"),
+                ToolStatus(name="adb", label="adb", available=True, path="/opt/android/adb"),
+                ToolStatus(name="frida", label="frida", available=True, path="/opt/homebrew/bin/frida"),
+                ToolStatus(name="python-frida", label="python-frida", available=True, path="module:frida"),
+            )
+        )
 
 
 def test_main_window_runs_real_static_analysis_workflow(tmp_path: Path) -> None:
@@ -504,7 +519,7 @@ def test_main_window_preserves_custom_script_order_before_method_hooks(tmp_path:
     window.close()
 
 
-def test_main_window_surfaces_unavailable_real_execution_mode(tmp_path: Path) -> None:
+def test_main_window_disables_unavailable_real_execution_mode(tmp_path: Path) -> None:
     app = _app()
     sample_path = tmp_path / "sample.apk"
     sample_path.write_bytes(b"apk")
@@ -534,11 +549,11 @@ def test_main_window_surfaces_unavailable_real_execution_mode(tmp_path: Path) ->
     window.task_center.run_analysis_button.click()
     window.method_index.method_list.setCurrentRow(0)
     window.method_index.add_selected_button.click()
-    window.script_plan.execution_mode_combo.setCurrentText("Real Device")
-    window.script_plan.run_fake_button.click()
+    real_device_index = window.script_plan.execution_mode_combo.findData("real_device")
 
-    assert "real device execution is not available" in window.results_summary.summary_label.text().lower()
-    assert window.execution_logs.log_list.count() == 0
+    assert real_device_index >= 0
+    assert not window.script_plan.execution_mode_combo.model().item(real_device_index).isEnabled()
+    assert window.script_plan.execution_mode_combo.currentData() == "fake_backend"
     assert app is not None
     window.close()
 
@@ -640,6 +655,7 @@ def test_main_window_routes_to_named_real_backend_preset(tmp_path: Path) -> None
         job_service=JobService(static_analyzer=fake_analyzer),
         scripts_root=tmp_path / "scripts",
         db_root=tmp_path,
+        environment_service=_ReadyFridaEnvironmentService(),
         execution_backends={"real_frida_session": preset_backend},
     )
     window = MainWindow(controller=controller)

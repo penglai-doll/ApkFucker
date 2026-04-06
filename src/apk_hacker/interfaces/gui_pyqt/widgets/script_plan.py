@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from PyQt6.QtGui import QStandardItemModel
 from PyQt6.QtWidgets import QComboBox, QLabel, QListWidget, QListWidgetItem, QPlainTextEdit, QPushButton, QVBoxLayout, QWidget
 
-from apk_hacker.application.services.execution_presets import EXECUTION_PRESETS
+from apk_hacker.application.services.execution_presets import EXECUTION_PRESETS, ExecutionPresetStatus
 from apk_hacker.domain.models.hook_plan import HookPlan, HookPlanItem
 
 
@@ -34,6 +35,25 @@ class ScriptPlanWidget(QWidget):
         self.run_fake_button.clicked.connect(self._emit_run_requested)
         self.execution_mode_combo.currentIndexChanged.connect(self._emit_execution_mode_changed)
         self.plan_list.currentRowChanged.connect(self._sync_preview)
+
+    def set_execution_presets(self, statuses: tuple[ExecutionPresetStatus, ...], current_mode: str) -> None:
+        if not statuses:
+            return
+        self.execution_mode_combo.blockSignals(True)
+        model = self.execution_mode_combo.model()
+        if not isinstance(model, QStandardItemModel):
+            self.execution_mode_combo.blockSignals(False)
+            return
+        for row, status in enumerate(statuses):
+            if row >= model.rowCount():
+                continue
+            item = model.item(row)
+            if item is None:
+                continue
+            item.setEnabled(status.available)
+            item.setToolTip(status.detail)
+        self.execution_mode_combo.blockSignals(False)
+        self.set_execution_mode(current_mode)
 
     def set_plan(self, plan: HookPlan) -> None:
         self._plan_items = plan.items
