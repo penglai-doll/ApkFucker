@@ -80,6 +80,31 @@ def _coerce_message(message: dict[str, Any], source_script: str | None = None) -
     return None
 
 
+def _session_error_event(
+    step: str,
+    target_package: str,
+    detail: str,
+    source_script: str | None = None,
+) -> dict[str, object]:
+    event: dict[str, object] = {
+        "event_type": "frida_session_error",
+        "class_name": "frida",
+        "method_name": step,
+        "arguments": (target_package,),
+        "return_value": detail,
+        "stacktrace": "",
+    }
+    if source_script is not None:
+        event["source_script"] = source_script
+    return event
+
+
+def _emit_events(events: list[dict[str, object]]) -> int:
+    for event in events:
+        print(json.dumps(event, ensure_ascii=False))
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="apk-hacker-frida-session-backend",
@@ -90,12 +115,31 @@ def main() -> int:
     target_package = _require_env("APKHACKER_TARGET_PACKAGE")
     scripts_dir = Path(_require_env("APKHACKER_SCRIPTS_DIR")).expanduser().resolve()
     script_paths = _select_scripts(scripts_dir)
-    frida = _load_frida_module()
 
     events: list[dict[str, object]] = []
-    device = frida.get_usb_device(timeout=5)
-    pid = device.spawn([target_package])
-    session = device.attach(pid)
+    try:
+        frida = _load_frida_module()
+    except Exception as exc:
+        events.append(_session_error_event("module_import", target_package, str(exc)))
+        return _emit_events(events)
+
+    try:
+        device = frida.get_usb_device(timeout=5)
+    except Exception as exc:
+        events.append(_session_error_event("device_connect", target_package, str(exc)))
+        return _emit_events(events)
+
+    try:
+        pid = device.spawn([target_package])
+    except Exception as exc:
+        events.append(_session_error_event("spawn", target_package, str(exc)))
+        return _emit_events(events)
+
+    try:
+        session = device.attach(pid)
+    except Exception as exc:
+        events.append(_session_error_event("attach", target_package, str(exc)))
+        return _emit_events(events)
 
     for script_path in script_paths:
         def on_message(message: dict[str, Any], data: Any, *, _script_name: str = script_path.name) -> None:
@@ -104,30 +148,48 @@ def main() -> int:
             if event is not None:
                 events.append(event)
 
-        script = session.create_script(script_path.read_text(encoding="utf-8"))
-        script.on("message", on_message)
-        script.load()
+        try:
+            script = session.create_script(script_path.read_text(encoding="utf-8"))
+            script.on("message", on_message)
+            script.load()
+        except Exception as exc:
+            events.append(_session_error_event("script_load", target_package, str(exc), source_script=script_path.name))
+            try:
+                session.detach()
+            except Exception as detach_exc:
+                events.append(_session_error_event("detach", target_package, str(detach_exc)))
+            return _emit_events(events)
     try:
         device.resume(pid)
+    except Exception as exc:
+        events.append(_session_error_event("resume", target_package, str(exc)))
+        try:
+            session.detach()
+        except Exception as detach_exc:
+            events.append(_session_error_event("detach", target_package, str(detach_exc)))
+        return _emit_events(events)
+
+    try:
         time.sleep(_session_seconds())
     finally:
-        session.detach()
+        try:
+            session.detach()
+        except Exception as exc:
+            events.append(_session_error_event("detach", target_package, str(exc)))
 
     if not events:
         events.append(
             {
-                "event_type": "frida_session",
+                "event_type": "frida_session_timeout",
                 "class_name": "frida",
-                "method_name": "attached",
-                "arguments": (target_package, str(len(script_paths))),
-                "return_value": "attached",
+                "method_name": "idle",
+                "arguments": (target_package, f"{_session_seconds():.1f}s"),
+                "return_value": "timeout",
                 "stacktrace": "",
             }
         )
 
-    for event in events:
-        print(json.dumps(event, ensure_ascii=False))
-    return 0
+    return _emit_events(events)
 
 
 if __name__ == "__main__":

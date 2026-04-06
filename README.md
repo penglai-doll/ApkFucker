@@ -173,6 +173,7 @@ uv run apk-hacker \
 
 这个 runner 会通过 Python `frida` API 执行 `spawn -> attach -> load -> resume`，并把脚本里的 `send(...)` 消息转成结构化事件。当前版本只做最小会话，不负责长期保持连接或复杂的多脚本编排。
 当前已经支持按 `Hook Plan` 顺序依次加载多份脚本，并在事件里附带来源脚本名，方便在工作台日志中区分不同脚本的输出。
+如果会话期间没有收到脚本消息，会回传 `frida_session_timeout`；如果连接设备、加载脚本或恢复进程失败，会回传 `frida_session_error`，便于在工作台里区分“链路不通”和“脚本本身没产生日志”。
 
 ## 目录说明
 

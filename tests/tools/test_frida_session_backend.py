@@ -226,3 +226,258 @@ def test_packaged_frida_session_backend_loads_all_scripts_in_plan_order(tmp_path
         "02_builduploadurl.js",
         "03_custom-two.js",
     ]
+
+
+def test_packaged_frida_session_backend_emits_timeout_when_no_script_messages(tmp_path: Path) -> None:
+    state_file = tmp_path / "fake-frida-timeout.jsonl"
+    module_path = tmp_path / "frida.py"
+    module_path.write_text(
+        """
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+
+
+STATE_PATH = Path(os.environ["APKHACKER_FAKE_FRIDA_STATE"])
+
+
+def _append(record: dict[str, object]) -> None:
+    with STATE_PATH.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, ensure_ascii=False) + "\\n")
+
+
+class FakeScript:
+    def __init__(self, source: str) -> None:
+        self._source = source
+
+    def on(self, event_name: str, callback) -> None:
+        del callback
+        _append({"op": "script.on", "event_name": event_name})
+
+    def load(self) -> None:
+        _append({"op": "script.load", "source_length": len(self._source)})
+
+
+class FakeSession:
+    def create_script(self, source: str) -> FakeScript:
+        _append({"op": "session.create_script"})
+        return FakeScript(source)
+
+    def detach(self) -> None:
+        _append({"op": "session.detach"})
+
+
+class FakeDevice:
+    def spawn(self, argv: list[str]) -> int:
+        _append({"op": "device.spawn", "argv": argv})
+        return 1001
+
+    def attach(self, pid: int) -> FakeSession:
+        _append({"op": "device.attach", "pid": pid})
+        return FakeSession()
+
+    def resume(self, pid: int) -> None:
+        _append({"op": "device.resume", "pid": pid})
+
+
+def get_usb_device(timeout: int | None = None) -> FakeDevice:
+    _append({"op": "frida.get_usb_device", "timeout": timeout})
+    return FakeDevice()
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    pythonpath = os.environ.get("PYTHONPATH", "")
+    env_pythonpath = f"{tmp_path}:{pythonpath}" if pythonpath else str(tmp_path)
+    method = MethodIndexEntry(
+        class_name="com.demo.net.Config",
+        method_name="buildUploadUrl",
+        parameter_types=("String",),
+        return_type="String",
+        is_constructor=False,
+        overload_count=1,
+        source_path="sources/com/demo/net/Config.java",
+        line_hint=4,
+    )
+    plan = HookPlanService().plan_for_methods([method])
+    backend = RealExecutionBackend(
+        command=f"{sys.executable} -m apk_hacker.tools.frida_session_backend",
+        extra_env={
+            "PYTHONPATH": env_pythonpath,
+            "APKHACKER_FAKE_FRIDA_STATE": str(state_file),
+            "APKHACKER_FRIDA_SESSION_SECONDS": "0.1",
+        },
+    )
+
+    events = backend.execute(
+        ExecutionRequest(
+            job_id="job-1",
+            plan=plan,
+            package_name="com.demo.shell",
+        )
+    )
+
+    assert len(events) == 1
+    assert events[0].event_type == "frida_session_timeout"
+    assert events[0].method_name == "idle"
+    assert events[0].arguments[0] == "com.demo.shell"
+
+
+def test_packaged_frida_session_backend_classifies_device_connect_failures(tmp_path: Path) -> None:
+    state_file = tmp_path / "fake-frida-connect-error.jsonl"
+    module_path = tmp_path / "frida.py"
+    module_path.write_text(
+        """
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+
+
+STATE_PATH = Path(os.environ["APKHACKER_FAKE_FRIDA_STATE"])
+
+
+def _append(record: dict[str, object]) -> None:
+    with STATE_PATH.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, ensure_ascii=False) + "\\n")
+
+
+def get_usb_device(timeout: int | None = None):
+    _append({"op": "frida.get_usb_device", "timeout": timeout})
+    raise RuntimeError("usb device unavailable")
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    pythonpath = os.environ.get("PYTHONPATH", "")
+    env_pythonpath = f"{tmp_path}:{pythonpath}" if pythonpath else str(tmp_path)
+    method = MethodIndexEntry(
+        class_name="com.demo.net.Config",
+        method_name="buildUploadUrl",
+        parameter_types=("String",),
+        return_type="String",
+        is_constructor=False,
+        overload_count=1,
+        source_path="sources/com/demo/net/Config.java",
+        line_hint=4,
+    )
+    plan = HookPlanService().plan_for_methods([method])
+    backend = RealExecutionBackend(
+        command=f"{sys.executable} -m apk_hacker.tools.frida_session_backend",
+        extra_env={
+            "PYTHONPATH": env_pythonpath,
+            "APKHACKER_FAKE_FRIDA_STATE": str(state_file),
+            "APKHACKER_FRIDA_SESSION_SECONDS": "0.1",
+        },
+    )
+
+    events = backend.execute(
+        ExecutionRequest(
+            job_id="job-1",
+            plan=plan,
+            package_name="com.demo.shell",
+        )
+    )
+
+    assert len(events) == 1
+    assert events[0].event_type == "frida_session_error"
+    assert events[0].method_name == "device_connect"
+    assert "usb device unavailable" in (events[0].return_value or "")
+
+
+def test_packaged_frida_session_backend_forwards_script_error_with_source(tmp_path: Path) -> None:
+    state_file = tmp_path / "fake-frida-script-error.jsonl"
+    module_path = tmp_path / "frida.py"
+    module_path.write_text(
+        """
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+
+
+STATE_PATH = Path(os.environ["APKHACKER_FAKE_FRIDA_STATE"])
+
+
+def _append(record: dict[str, object]) -> None:
+    with STATE_PATH.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, ensure_ascii=False) + "\\n")
+
+
+class FakeScript:
+    def __init__(self, source: str) -> None:
+        self._source = source
+        self._callback = None
+
+    def on(self, event_name: str, callback) -> None:
+        _append({"op": "script.on", "event_name": event_name})
+        self._callback = callback
+
+    def load(self) -> None:
+        _append({"op": "script.load", "source_length": len(self._source)})
+        self._callback({"type": "error", "stack": "boom"}, None)
+
+
+class FakeSession:
+    def create_script(self, source: str) -> FakeScript:
+        _append({"op": "session.create_script"})
+        return FakeScript(source)
+
+    def detach(self) -> None:
+        _append({"op": "session.detach"})
+
+
+class FakeDevice:
+    def spawn(self, argv: list[str]) -> int:
+        _append({"op": "device.spawn", "argv": argv})
+        return 2002
+
+    def attach(self, pid: int) -> FakeSession:
+        _append({"op": "device.attach", "pid": pid})
+        return FakeSession()
+
+    def resume(self, pid: int) -> None:
+        _append({"op": "device.resume", "pid": pid})
+
+
+def get_usb_device(timeout: int | None = None) -> FakeDevice:
+    _append({"op": "frida.get_usb_device", "timeout": timeout})
+    return FakeDevice()
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    pythonpath = os.environ.get("PYTHONPATH", "")
+    env_pythonpath = f"{tmp_path}:{pythonpath}" if pythonpath else str(tmp_path)
+    custom_one = tmp_path / "custom-one.js"
+    custom_one.write_text("send('custom-one');\n", encoding="utf-8")
+    plan = HookPlanService().plan_for_sources(
+        [
+            HookPlanSource.from_custom_script("custom-one", str(custom_one)),
+        ]
+    )
+    backend = RealExecutionBackend(
+        command=f"{sys.executable} -m apk_hacker.tools.frida_session_backend",
+        extra_env={
+            "PYTHONPATH": env_pythonpath,
+            "APKHACKER_FAKE_FRIDA_STATE": str(state_file),
+            "APKHACKER_FRIDA_SESSION_SECONDS": "0.1",
+        },
+    )
+
+    events = backend.execute(
+        ExecutionRequest(
+            job_id="job-1",
+            plan=plan,
+            package_name="com.demo.shell",
+        )
+    )
+
+    assert len(events) == 1
+    assert events[0].event_type == "frida_script_error"
+    assert events[0].stacktrace == "boom"
+    assert events[0].raw_payload["source_script"] == "01_custom-one.js"
