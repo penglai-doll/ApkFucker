@@ -160,7 +160,14 @@ class WorkbenchController:
             next_mode = state.execution_mode
             if not any(status.key == next_mode and status.available for status in statuses):
                 next_mode = "fake_backend"
-            return replace(state, environment_snapshot=snapshot, execution_preset_statuses=statuses, execution_mode=next_mode)
+            return self._populate_custom_scripts(
+                replace(
+                    state,
+                    environment_snapshot=snapshot,
+                    execution_preset_statuses=statuses,
+                    execution_mode=next_mode,
+                )
+            )
         return replace(
             state,
             environment_snapshot=snapshot,
@@ -189,25 +196,22 @@ class WorkbenchController:
             },
         )
         method_index = self._indexer.build(self._jadx_sources_root)  # type: ignore[arg-type]
-        custom_scripts = tuple(self._custom_scripts.discover())
         visible_methods = method_index.methods
         hook_recommendations = self._hook_advisor.recommend(static_inputs, method_index)
         snapshot, statuses = self._inspect_environment()
 
-        return WorkbenchState(
-            sample_path=sample_path,
-            current_job=job,
-            static_inputs=static_inputs,
-            method_index=method_index,
-            visible_methods=visible_methods,
-            hook_recommendations=hook_recommendations,
-            environment_snapshot=snapshot,
-            execution_preset_statuses=statuses,
-            custom_scripts=custom_scripts,
-            custom_script_draft_name=custom_scripts[0].name if custom_scripts else "",
-            custom_script_draft_content=self._custom_scripts.read_script(custom_scripts[0]) if custom_scripts else "",
-            selected_custom_script_path=custom_scripts[0].script_path if custom_scripts else None,
-            summary_text=f"Loaded demo workspace for {sample_path.name}.",
+        return self._populate_custom_scripts(
+            WorkbenchState(
+                sample_path=sample_path,
+                current_job=job,
+                static_inputs=static_inputs,
+                method_index=method_index,
+                visible_methods=visible_methods,
+                hook_recommendations=hook_recommendations,
+                environment_snapshot=snapshot,
+                execution_preset_statuses=statuses,
+                summary_text=f"Loaded demo workspace for {sample_path.name}.",
+            )
         )
 
     def load_sample_workspace(self, sample_path: Path) -> WorkbenchState:
@@ -215,23 +219,20 @@ class WorkbenchController:
             sample_path,
             output_dir=self._analysis_output_root,
         )
-        custom_scripts = tuple(self._custom_scripts.discover())
         hook_recommendations = self._hook_advisor.recommend(static_inputs, method_index)
         snapshot, statuses = self._inspect_environment()
-        return WorkbenchState(
-            sample_path=sample_path,
-            current_job=job,
-            static_inputs=static_inputs,
-            method_index=method_index,
-            visible_methods=method_index.methods,
-            hook_recommendations=hook_recommendations,
-            environment_snapshot=snapshot,
-            execution_preset_statuses=statuses,
-            custom_scripts=custom_scripts,
-            custom_script_draft_name=custom_scripts[0].name if custom_scripts else "",
-            custom_script_draft_content=self._custom_scripts.read_script(custom_scripts[0]) if custom_scripts else "",
-            selected_custom_script_path=custom_scripts[0].script_path if custom_scripts else None,
-            summary_text=f"Static analysis finished for {sample_path.name}.",
+        return self._populate_custom_scripts(
+            WorkbenchState(
+                sample_path=sample_path,
+                current_job=job,
+                static_inputs=static_inputs,
+                method_index=method_index,
+                visible_methods=method_index.methods,
+                hook_recommendations=hook_recommendations,
+                environment_snapshot=snapshot,
+                execution_preset_statuses=statuses,
+                summary_text=f"Static analysis finished for {sample_path.name}.",
+            )
         )
 
     def search_methods(self, state: WorkbenchState, query: str) -> WorkbenchState:
@@ -312,6 +313,37 @@ class WorkbenchController:
             custom_script_draft_name=record.name,
             custom_script_draft_content=content,
             summary_text=f"Saved custom script {record.name}.",
+        )
+
+    def _populate_custom_scripts(self, state: WorkbenchState) -> WorkbenchState:
+        custom_scripts = tuple(self._custom_scripts.discover())
+        if not custom_scripts:
+            return replace(
+                state,
+                custom_scripts=(),
+                selected_custom_script_path=None,
+                custom_script_draft_name=state.custom_script_draft_name,
+                custom_script_draft_content=state.custom_script_draft_content,
+            )
+
+        selected_script = None
+        if state.selected_custom_script_path is not None:
+            for script in custom_scripts:
+                if script.script_path == state.selected_custom_script_path:
+                    selected_script = script
+                    break
+        if selected_script is None:
+            selected_script = custom_scripts[0]
+
+        draft_name = state.custom_script_draft_name or selected_script.name
+        draft_content = state.custom_script_draft_content or self._custom_scripts.read_script(selected_script)
+
+        return replace(
+            state,
+            custom_scripts=custom_scripts,
+            selected_custom_script_path=selected_script.script_path,
+            custom_script_draft_name=draft_name,
+            custom_script_draft_content=draft_content,
         )
 
     def set_execution_mode(self, state: WorkbenchState, mode: str) -> WorkbenchState:

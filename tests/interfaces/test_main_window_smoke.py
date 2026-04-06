@@ -68,3 +68,20 @@ def test_main_window_disables_demo_loading_without_fixture_sources() -> None:
     assert "ready to analyze" in window.results_summary.summary_label.text().lower()
 
     window.close()
+
+
+def test_main_window_loads_existing_custom_scripts_without_workspace(tmp_path) -> None:
+    app = _app()
+    scripts_root = tmp_path / "scripts"
+    scripts_root.mkdir(parents=True, exist_ok=True)
+    script_path = scripts_root / "trace_login.js"
+    script_path.write_text("send('trace-login');\n", encoding="utf-8")
+
+    window = MainWindow(scripts_root=scripts_root, db_root=tmp_path)
+
+    assert window.custom_scripts.script_list.count() == 1
+    assert window.custom_scripts.script_list.item(0).text() == "trace_login"
+    assert window.custom_scripts.name_input.text() == "trace_login"
+    assert "trace-login" in window.custom_scripts.editor.toPlainText()
+    assert app is not None
+    window.close()

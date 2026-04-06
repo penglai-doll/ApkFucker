@@ -23,6 +23,7 @@
 - 离线 Hook Assistant / 模板建议
 - 离线 HAR 导入与可疑流量标记
 - 自定义 Frida 脚本编辑与加入计划
+- 启动即加载已有自定义 Frida 脚本
 - `Fake Backend / Real Device` 执行模式切换
 - 脚本真实渲染与预览
 - `Open in JADX`
@@ -252,7 +253,7 @@ uv run pytest -q
 
 当前分支验证结果为：
 
-- `115 passed`
+- `116 passed`
 
 ## 注意事项
 
