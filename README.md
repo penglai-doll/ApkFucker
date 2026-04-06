@@ -77,6 +77,15 @@ uv run apk-hacker \
   --jadx-gui-path /path/to/jadx-gui
 ```
 
+如果你希望内置真实后端直接带上设备和 `frida-server` 启动参数，也可以这样启动：
+
+```bash
+uv run apk-hacker \
+  --sample /path/to/sample.apk \
+  --device-serial emulator-5554 \
+  --frida-server-binary /path/to/frida-server
+```
+
 如果你想直接指定 `Real Device` 的命令型后端，也可以在启动时传入：
 
 ```bash
@@ -109,12 +118,14 @@ uv run apk-hacker --help
 - `Fake Backend`
 - `Real Device`
 - `ADB Probe`
+- `Frida Bootstrap`
 - `Frida Probe`
 - `Frida Inject`
 - `Frida Session`
 
-其中后四者会直接调用仓库自带的后端 runner，适合本地逐步验证 `adb / frida` 链路；只有在你想接自定义执行器时，才需要继续使用 `--real-backend-command` 或环境变量覆盖 `Real Device`。
-工作台会根据当前环境自动评估这些预设的可用性：例如缺少 `adb` 时会禁用 `ADB Probe`，缺少 Python `frida` 模块时会禁用 `Frida Session`，并在 `Task Center` 里显示每个预设当前是 `ready` 还是 `unavailable`。
+其中后五者会直接调用仓库自带的后端 runner，适合本地逐步验证 `adb / frida` 链路；只有在你想接自定义执行器时，才需要继续使用 `--real-backend-command` 或环境变量覆盖 `Real Device`。
+工作台会根据当前环境自动评估这些预设的可用性：例如缺少 `adb` 时会禁用 `ADB Probe` 和 `Frida Bootstrap`，缺少 Python `frida` 模块时会禁用 `Frida Session`，并在 `Task Center` 里显示每个预设当前是 `ready` 还是 `unavailable`。
+`Real Device` 本身会自动路由到当前最合适的内置后端：优先 `Frida Session`，其次 `Frida Inject`、`Frida Probe`、`ADB Probe`；如果你显式传入 `--real-backend-command`，则优先使用你的自定义后端。
 
 ## 执行模式说明
 
@@ -124,6 +135,7 @@ uv run apk-hacker --help
 - `Real Device`
   - 目前是“命令型真实后端”骨架
   - 可以通过环境变量 `APKHACKER_REAL_BACKEND_COMMAND` 指向你自己的执行器脚本
+  - 也可以不配置自定义命令，让工作台自动路由到当前可用的内置真实后端
   - 后端会把当前计划和已渲染的脚本写入临时目录，再把路径和运行上下文通过环境变量传给执行器：
     - `APKHACKER_JOB_ID`
     - `APKHACKER_TARGET_PACKAGE`
@@ -156,6 +168,30 @@ uv run apk-hacker
 
 这个 runner 目前不会注入 Frida，但会把 `adb devices` 和设备 ABI 探测结果以真实事件的方式回传到工作台，用来验证本机到设备的桥接链路。
 
+如果你已经有可用的 `frida-server` 二进制，并且设备已经 Root，可以先用内置的 `Frida Bootstrap` 预设或对应 runner 做一次自举：
+
+```bash
+uv run apk-hacker \
+  --sample /path/to/sample.apk \
+  --device-serial serial-123 \
+  --frida-server-binary /path/to/frida-server
+```
+
+对应的命令行 runner 是：
+
+```bash
+uv run apk-hacker-frida-bootstrap-backend
+```
+
+它会做这几件事：
+- 枚举 `adb` 设备并选择目标序列号
+- 读取设备 ABI
+- 检查 Root 能力
+- 检查 `frida-server` 是否已在运行
+- 如未运行且提供了本地二进制，则自动 `push -> chmod -> start`
+
+如果你在 GUI 或命令行里给了 `--frida-server-binary`，`Frida Session` 在首次 USB 连接失败时也会自动尝试一次同样的 bootstrap，然后再重试连接。
+
 如果你本机已经装好了 `frida-tools`，也可以直接用仓库内置的 Frida 目标探测 runner：
 
 ```bash
@@ -186,6 +222,7 @@ uv run apk-hacker \
 这个 runner 会通过 Python `frida` API 执行 `spawn -> attach -> load -> resume`，并把脚本里的 `send(...)` 消息转成结构化事件。当前版本只做最小会话，不负责长期保持连接或复杂的多脚本编排。
 当前已经支持按 `Hook Plan` 顺序依次加载多份脚本，并在事件里附带来源脚本名，方便在工作台日志中区分不同脚本的输出。
 如果会话期间没有收到脚本消息，会回传 `frida_session_timeout`；如果连接设备、加载脚本或恢复进程失败，会回传 `frida_session_error`，便于在工作台里区分“链路不通”和“脚本本身没产生日志”。
+当你提供 `--frida-server-binary` 时，`Frida Session` 还会在第一次 `get_usb_device()` 失败后自动尝试 bootstrap，再重试一次 USB 连接。
 
 ## 目录说明
 
@@ -208,7 +245,7 @@ uv run pytest -q
 
 当前分支验证结果为：
 
-- `91 passed`
+- `109 passed`
 
 ## 注意事项
 

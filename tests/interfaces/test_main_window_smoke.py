@@ -33,6 +33,7 @@ def test_main_window_has_expected_navigation() -> None:
         "Fake Backend",
         "Real Device",
         "ADB Probe",
+        "Frida Bootstrap",
         "Frida Probe",
         "Frida Inject",
         "Frida Session",

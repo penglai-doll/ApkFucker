@@ -11,6 +11,19 @@ from apk_hacker.interfaces.gui_pyqt.main_window import MainWindow
 from apk_hacker.interfaces.gui_pyqt.viewmodels import WorkbenchController
 
 
+def _build_execution_backend_env(args: argparse.Namespace) -> dict[str, str]:
+    env: dict[str, str] = {}
+    if args.device_serial:
+        env["APKHACKER_DEVICE_SERIAL"] = args.device_serial
+    if args.frida_server_binary is not None:
+        env["APKHACKER_FRIDA_SERVER_BINARY"] = str(args.frida_server_binary)
+    if args.frida_server_remote_path:
+        env["APKHACKER_FRIDA_SERVER_REMOTE_PATH"] = args.frida_server_remote_path
+    if args.frida_session_seconds is not None:
+        env["APKHACKER_FRIDA_SESSION_SECONDS"] = str(args.frida_session_seconds)
+    return env
+
+
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Launch the APKHacker PyQt6 workbench.")
     parser.add_argument("--sample", type=Path, help="Optional sample path to prefill in the task center.")
@@ -19,6 +32,17 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--db-root", type=Path, help="Optional cache/database directory.")
     parser.add_argument("--fixture-root", type=Path, help="Optional demo fixture root.")
     parser.add_argument("--jadx-sources-root", type=Path, help="Optional demo JADX sources root.")
+    parser.add_argument("--device-serial", help="Optional adb device serial for built-in real backends.")
+    parser.add_argument("--frida-server-binary", type=Path, help="Optional local frida-server binary for bootstrap.")
+    parser.add_argument(
+        "--frida-server-remote-path",
+        help="Optional target path used by the Frida Bootstrap preset on the device.",
+    )
+    parser.add_argument(
+        "--frida-session-seconds",
+        type=float,
+        help="Optional capture window for the Frida Session preset.",
+    )
     parser.add_argument(
         "--real-backend-command",
         help="Optional command bridge for the Real Device execution mode.",
@@ -27,6 +51,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 
 def build_window(args: argparse.Namespace) -> MainWindow:
+    execution_backend_env = _build_execution_backend_env(args)
     controller = None
     if args.real_backend_command:
         controller = WorkbenchController(
@@ -34,9 +59,21 @@ def build_window(args: argparse.Namespace) -> MainWindow:
             jadx_sources_root=args.jadx_sources_root,
             scripts_root=args.scripts_root,
             db_root=args.db_root,
+            execution_backend_env=execution_backend_env,
             execution_backends={
-                "real_device": RealExecutionBackend(command=args.real_backend_command),
+                "real_device": RealExecutionBackend(
+                    command=args.real_backend_command,
+                    extra_env=execution_backend_env,
+                ),
             },
+        )
+    elif execution_backend_env:
+        controller = WorkbenchController(
+            fixture_root=args.fixture_root,
+            jadx_sources_root=args.jadx_sources_root,
+            scripts_root=args.scripts_root,
+            db_root=args.db_root,
+            execution_backend_env=execution_backend_env,
         )
 
     window = MainWindow(

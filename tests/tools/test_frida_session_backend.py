@@ -481,3 +481,184 @@ def get_usb_device(timeout: int | None = None) -> FakeDevice:
     assert events[0].event_type == "frida_script_error"
     assert events[0].stacktrace == "boom"
     assert events[0].raw_payload["source_script"] == "01_custom-one.js"
+
+
+def test_packaged_frida_session_backend_can_bootstrap_frida_server_before_retry(tmp_path: Path) -> None:
+    state_file = tmp_path / "fake-frida-bootstrap.jsonl"
+    marker_file = tmp_path / "frida-ready.marker"
+    module_path = tmp_path / "frida.py"
+    module_path.write_text(
+        f"""
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+
+
+STATE_PATH = Path(os.environ["APKHACKER_FAKE_FRIDA_STATE"])
+READY_MARKER = Path({str(marker_file)!r})
+
+
+def _append(record: dict[str, object]) -> None:
+    with STATE_PATH.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, ensure_ascii=False) + "\\n")
+
+
+class FakeScript:
+    def __init__(self, source: str) -> None:
+        self._source = source
+        self._callback = None
+
+    def on(self, event_name: str, callback) -> None:
+        _append({{"op": "script.on", "event_name": event_name}})
+        self._callback = callback
+
+    def load(self) -> None:
+        _append({{"op": "script.load", "source_length": len(self._source)}})
+        payload = json.dumps(
+            {{
+                "event_type": "method_call",
+                "class_name": "com.demo.net.Config",
+                "method_name": "buildUploadUrl",
+                "arguments": ["bootstrap"],
+                "return_value": "ok",
+                "stacktrace": "com.demo.net.Config.buildUploadUrl:1",
+            }},
+            ensure_ascii=False,
+        )
+        self._callback({{"type": "send", "payload": payload}}, None)
+
+
+class FakeSession:
+    def create_script(self, source: str) -> FakeScript:
+        _append({{"op": "session.create_script"}})
+        return FakeScript(source)
+
+    def detach(self) -> None:
+        _append({{"op": "session.detach"}})
+
+
+class FakeDevice:
+    def spawn(self, argv: list[str]) -> int:
+        _append({{"op": "device.spawn", "argv": argv}})
+        return 4242
+
+    def attach(self, pid: int) -> FakeSession:
+        _append({{"op": "device.attach", "pid": pid}})
+        return FakeSession()
+
+    def resume(self, pid: int) -> None:
+        _append({{"op": "device.resume", "pid": pid}})
+
+
+def get_usb_device(timeout: int | None = None) -> FakeDevice:
+    _append({{"op": "frida.get_usb_device", "timeout": timeout, "ready": READY_MARKER.exists()}})
+    if not READY_MARKER.exists():
+        raise RuntimeError("frida-server is not running")
+    return FakeDevice()
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    adb_path = tmp_path / "adb"
+    frida_server_binary = tmp_path / "frida-server"
+    frida_server_binary.write_text("fake-binary", encoding="utf-8")
+    adb_path.write_text(
+        f"""#!/bin/sh
+READY_MARKER="{marker_file}"
+if [ "$1" = "devices" ]; then
+  printf 'List of devices attached\\nserial-123\\tdevice\\n'
+  exit 0
+fi
+if [ "$1" = "-s" ] && [ "$2" = "serial-123" ] && [ "$3" = "shell" ] && [ "$4" = "getprop" ] && [ "$5" = "ro.product.cpu.abi" ]; then
+  printf 'arm64-v8a\\n'
+  exit 0
+fi
+if [ "$1" = "-s" ] && [ "$2" = "serial-123" ] && [ "$3" = "shell" ] && [ "$4" = "su" ] && [ "$5" = "-c" ] && [ "$6" = "id" ]; then
+  printf 'uid=0(root) gid=0(root)\\n'
+  exit 0
+fi
+if [ "$1" = "-s" ] && [ "$2" = "serial-123" ] && [ "$3" = "shell" ] && [ "$4" = "su" ] && [ "$5" = "-c" ] && [ "$6" = "pidof frida-server" ]; then
+  if [ -f "$READY_MARKER" ]; then
+    printf '31337\\n'
+  fi
+  exit 0
+fi
+if [ "$1" = "-s" ] && [ "$2" = "serial-123" ] && [ "$3" = "push" ]; then
+  exit 0
+fi
+if [ "$1" = "-s" ] && [ "$2" = "serial-123" ] && [ "$3" = "shell" ] && [ "$4" = "su" ] && [ "$5" = "-c" ]; then
+  case "$6" in
+    "chmod 755 /data/local/tmp/frida-server")
+      exit 0
+      ;;
+    "/data/local/tmp/frida-server >/dev/null 2>&1 &")
+      : > "$READY_MARKER"
+      exit 0
+      ;;
+  esac
+fi
+exit 1
+""",
+        encoding="utf-8",
+    )
+    adb_path.chmod(0o755)
+    pythonpath = os.environ.get("PYTHONPATH", "")
+    env_pythonpath = f"{tmp_path}:{pythonpath}" if pythonpath else str(tmp_path)
+    env_path = f"{tmp_path}:{os.environ['PATH']}"
+    method = MethodIndexEntry(
+        class_name="com.demo.net.Config",
+        method_name="buildUploadUrl",
+        parameter_types=("String",),
+        return_type="String",
+        is_constructor=False,
+        overload_count=1,
+        source_path="sources/com/demo/net/Config.java",
+        line_hint=4,
+    )
+    plan = HookPlanService().plan_for_methods([method])
+    backend = RealExecutionBackend(
+        command=f"{sys.executable} -m apk_hacker.tools.frida_session_backend",
+        extra_env={
+            "PATH": env_path,
+            "PYTHONPATH": env_pythonpath,
+            "APKHACKER_FAKE_FRIDA_STATE": str(state_file),
+            "APKHACKER_FRIDA_SERVER_BINARY": str(frida_server_binary),
+            "APKHACKER_DEVICE_SERIAL": "serial-123",
+            "APKHACKER_FRIDA_SESSION_SECONDS": "0.1",
+        },
+    )
+
+    events = backend.execute(
+        ExecutionRequest(
+            job_id="job-1",
+            plan=plan,
+            package_name="com.demo.shell",
+        )
+    )
+
+    records = [
+        json.loads(line)
+        for line in state_file.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert [record["op"] for record in records] == [
+        "frida.get_usb_device",
+        "frida.get_usb_device",
+        "device.spawn",
+        "device.attach",
+        "session.create_script",
+        "script.on",
+        "script.load",
+        "device.resume",
+        "session.detach",
+    ]
+    assert [event.event_type for event in events[:4]] == [
+        "device_connected",
+        "device_property",
+        "device_root_status",
+        "frida_server_action",
+    ]
+    assert events[-1].event_type == "method_call"
+    assert events[-1].arguments == ("bootstrap",)

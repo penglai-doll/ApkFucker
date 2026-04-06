@@ -4,6 +4,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 import json
 import sys
+from collections.abc import Mapping
 
 from apk_hacker.application.services.custom_script_service import CustomScriptRecord, CustomScriptService
 from apk_hacker.application.services.environment_service import EnvironmentService
@@ -11,6 +12,7 @@ from apk_hacker.application.services.execution_presets import (
     EXECUTION_PRESETS,
     ExecutionPresetStatus,
     build_execution_preset_statuses,
+    label_for_preset,
     resolve_real_device_backend,
 )
 from apk_hacker.application.services.hook_plan_service import HookPlanService
@@ -83,6 +85,7 @@ class WorkbenchController:
         fixture_root: Path | None = None,
         jadx_sources_root: Path | None = None,
         execution_backends: dict[str, ExecutionBackend] | None = None,
+        execution_backend_env: Mapping[str, str] | None = None,
     ) -> None:
         self._fixture_root = fixture_root
         self._jadx_sources_root = jadx_sources_root
@@ -98,7 +101,7 @@ class WorkbenchController:
         self._hook_plan_service = HookPlanService()
         self._traffic_capture_service = TrafficCaptureService()
         self._custom_scripts = CustomScriptService(scripts_root)
-        self._execution_backends = self._build_execution_backends()
+        self._execution_backends = self._build_execution_backends(execution_backend_env)
         if execution_backends is not None:
             self._execution_backends.update(execution_backends)
 
@@ -121,9 +124,10 @@ class WorkbenchController:
         return snapshot, statuses
 
     @staticmethod
-    def _build_execution_backends() -> dict[str, ExecutionBackend]:
+    def _build_execution_backends(extra_env: Mapping[str, str] | None = None) -> dict[str, ExecutionBackend]:
         command_modules = {
             "real_adb_probe": "apk_hacker.tools.adb_probe_backend",
+            "real_frida_bootstrap": "apk_hacker.tools.frida_bootstrap_backend",
             "real_frida_probe": "apk_hacker.tools.frida_probe_backend",
             "real_frida_inject": "apk_hacker.tools.frida_inject_backend",
             "real_frida_session": "apk_hacker.tools.frida_session_backend",
@@ -136,7 +140,10 @@ class WorkbenchController:
             module_name = command_modules.get(preset.key)
             if module_name is None:
                 continue
-            backends[preset.key] = RealExecutionBackend(command=f"{sys.executable} -m {module_name}")
+            backends[preset.key] = RealExecutionBackend(
+                command=f"{sys.executable} -m {module_name}",
+                extra_env=extra_env,
+            )
         return backends
 
     def refresh_environment(self, state: WorkbenchState, announce: bool = True) -> WorkbenchState:
@@ -325,7 +332,7 @@ class WorkbenchController:
             events = backend.execute(request)
         except ExecutionBackendUnavailable as exc:
             return replace(state, hook_events=(), summary_text=str(exc))
-        return self._persist_execution(state, events)
+        return self._persist_execution(state, events, executed_backend_key=backend_key)
 
     def load_traffic_capture(self, state: WorkbenchState, har_path: Path) -> WorkbenchState:
         if state.static_inputs is None:
@@ -349,7 +356,7 @@ class WorkbenchController:
         if not state.hook_plan.items:
             return replace(state, summary_text="Add at least one hook plan item first.")
         events = self._execution_backends["fake_backend"].execute(self._build_execution_request(state))
-        return self._persist_execution(state, events)
+        return self._persist_execution(state, events, executed_backend_key="fake_backend")
 
     def _resolve_execution_backend_key(self, state: WorkbenchState) -> str:
         if state.execution_mode != "real_device":
@@ -375,6 +382,7 @@ class WorkbenchController:
         self,
         state: WorkbenchState,
         events: tuple[HookEvent, ...],
+        executed_backend_key: str,
     ) -> WorkbenchState:
         if state.current_job is None:
             return state
@@ -384,11 +392,20 @@ class WorkbenchController:
         for event in events:
             store.insert(replace(event, job_id=state.current_job.job_id))
         rows = tuple(store.list_for_job(state.current_job.job_id))
+        requested_label = label_for_preset(state.execution_mode)
+        executed_label = label_for_preset(executed_backend_key)
+        if state.execution_mode == executed_backend_key:
+            execution_detail = executed_label
+        else:
+            execution_detail = f"{requested_label} -> {executed_label}"
         return replace(
             state,
             hook_events=rows,
             run_count=run_count,
-            summary_text=f"Captured {len(rows)} event(s) from {len(state.hook_plan.items)} planned hook(s).",
+            summary_text=(
+                f"Captured {len(rows)} event(s) from {len(state.hook_plan.items)} planned hook(s) "
+                f"via {execution_detail}."
+            ),
         )
 
     def _add_source_to_plan(

@@ -24,6 +24,7 @@ EXECUTION_PRESETS: tuple[ExecutionPreset, ...] = (
     ExecutionPreset(key="fake_backend", label="Fake Backend"),
     ExecutionPreset(key="real_device", label="Real Device"),
     ExecutionPreset(key="real_adb_probe", label="ADB Probe", required_tools=("adb",)),
+    ExecutionPreset(key="real_frida_bootstrap", label="Frida Bootstrap", required_tools=("adb",)),
     ExecutionPreset(key="real_frida_probe", label="Frida Probe", required_tools=("frida",)),
     ExecutionPreset(key="real_frida_inject", label="Frida Inject", required_tools=("frida",)),
     ExecutionPreset(key="real_frida_session", label="Frida Session", required_tools=("python-frida",)),
@@ -35,6 +36,13 @@ REAL_DEVICE_PRIORITY: tuple[str, ...] = (
     "real_frida_probe",
     "real_adb_probe",
 )
+
+
+def label_for_preset(key: str) -> str:
+    for preset in EXECUTION_PRESETS:
+        if preset.key == key:
+            return preset.label
+    return key
 
 
 def resolve_real_device_backend(statuses: tuple[ExecutionPresetStatus, ...]) -> str | None:

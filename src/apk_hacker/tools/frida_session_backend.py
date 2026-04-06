@@ -7,6 +7,8 @@ from pathlib import Path
 import time
 from typing import Any
 
+from apk_hacker.tools.frida_bootstrap_backend import FRIDA_SERVER_BINARY_ENV, bootstrap_succeeded, collect_bootstrap_events
+
 
 def _require_env(name: str) -> str:
     value = os.environ.get(name, "").strip()
@@ -126,8 +128,20 @@ def main() -> int:
     try:
         device = frida.get_usb_device(timeout=5)
     except Exception as exc:
-        events.append(_session_error_event("device_connect", target_package, str(exc)))
-        return _emit_events(events)
+        bootstrap_binary = os.environ.get(FRIDA_SERVER_BINARY_ENV, "").strip()
+        if not bootstrap_binary:
+            events.append(_session_error_event("device_connect", target_package, str(exc)))
+            return _emit_events(events)
+        bootstrap_events = collect_bootstrap_events()
+        events.extend(bootstrap_events)
+        if not bootstrap_succeeded(bootstrap_events):
+            events.append(_session_error_event("device_connect", target_package, str(exc)))
+            return _emit_events(events)
+        try:
+            device = frida.get_usb_device(timeout=5)
+        except Exception as retry_exc:
+            events.append(_session_error_event("device_connect", target_package, str(retry_exc)))
+            return _emit_events(events)
 
     try:
         pid = device.spawn([target_package])
