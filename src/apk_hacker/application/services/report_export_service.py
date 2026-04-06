@@ -14,6 +14,12 @@ def _joined(values: tuple[str, ...]) -> str:
     return ", ".join(values) if values else "-"
 
 
+def _read_optional_text(path: Path | None) -> str | None:
+    if path is None or not path.exists():
+        return None
+    return path.read_text(encoding="utf-8").strip() or None
+
+
 @dataclass(frozen=True, slots=True)
 class ExportableReport:
     job_id: str | None
@@ -45,6 +51,7 @@ class ReportExportService:
         ]
 
         if static_inputs is not None:
+            static_markdown = _read_optional_text(static_inputs.artifact_paths.static_markdown_report)
             lines.extend(
                 [
                     "## Static Summary",
@@ -59,6 +66,15 @@ class ReportExportService:
                     "",
                 ]
             )
+            if static_markdown is not None:
+                lines.extend(
+                    [
+                        "## Static Report Body",
+                        "",
+                        static_markdown,
+                        "",
+                    ]
+                )
 
         lines.extend(["## Hook Plan", ""])
         if not report.hook_plan.items:
@@ -126,6 +142,8 @@ class ReportExportService:
                     f"- Noise Log: {artifact_paths.noise_log or '-'}",
                     f"- JADX Sources: {artifact_paths.jadx_sources or '-'}",
                     f"- JADX Project: {artifact_paths.jadx_project or '-'}",
+                    f"- Static Markdown Report: {artifact_paths.static_markdown_report or '-'}",
+                    f"- Static DOCX Report: {artifact_paths.static_docx_report or '-'}",
                     "",
                 ]
             )

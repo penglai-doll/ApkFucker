@@ -20,6 +20,8 @@ class ArtifactPaths:
     noise_log: Path | None = None
     jadx_sources: Path | None = None
     jadx_project: Path | None = None
+    static_markdown_report: Path | None = None
+    static_docx_report: Path | None = None
 
 
 def coerce_artifact_paths(artifact_paths: Mapping[str, object] | ArtifactPaths | None) -> ArtifactPaths:
@@ -34,5 +36,6 @@ def coerce_artifact_paths(artifact_paths: Mapping[str, object] | ArtifactPaths |
         noise_log=_coerce_path(artifact_paths.get("noise_log")),
         jadx_sources=_coerce_path(artifact_paths.get("jadx_sources")),
         jadx_project=_coerce_path(artifact_paths.get("jadx_project")),
+        static_markdown_report=_coerce_path(artifact_paths.get("static_markdown_report")),
+        static_docx_report=_coerce_path(artifact_paths.get("static_docx_report")),
     )
-

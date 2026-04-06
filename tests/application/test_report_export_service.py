@@ -13,12 +13,17 @@ def test_report_export_service_writes_markdown_report(tmp_path: Path) -> None:
     fixture_root = Path("tests/fixtures/static_outputs")
     analysis = json.loads((fixture_root / "sample_analysis.json").read_text(encoding="utf-8"))
     callback = json.loads((fixture_root / "sample_callback-config.json").read_text(encoding="utf-8"))
+    static_report_path = tmp_path / "static-report.md"
+    static_report_path.write_text("## Legacy Static Narrative\n\n静态报告正文。\n", encoding="utf-8")
 
     static_inputs = StaticAdapter().adapt(
         sample_path=Path("/samples/demo.apk"),
         analysis_report=analysis,
         callback_config=callback,
-        artifact_paths={"analysis_report": fixture_root / "sample_analysis.json"},
+        artifact_paths={
+            "analysis_report": fixture_root / "sample_analysis.json",
+            "static_markdown_report": static_report_path,
+        },
     )
     index = JavaMethodIndexer().build(Path("tests/fixtures/jadx_sources"))
     selected = [method for method in index.methods if method.method_name == "buildUploadUrl"]
@@ -54,3 +59,5 @@ def test_report_export_service_writes_markdown_report(tmp_path: Path) -> None:
     assert "buildUploadUrl" in content
     assert "demo-c2.example/api/upload" in content
     assert "Captured 2 event(s) from the fake backend." in content
+    assert "Legacy Static Narrative" in content
+    assert "静态报告正文" in content

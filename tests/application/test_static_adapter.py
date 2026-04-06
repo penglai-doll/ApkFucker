@@ -20,6 +20,8 @@ def test_static_adapter_normalizes_static_outputs(tmp_path: Path) -> None:
         "analysis_report": tmp_path / "cache" / "demo" / "analysis.json",
         "callback_config": tmp_path / "cache" / "demo" / "callback-config.json",
         "noise_log": tmp_path / "cache" / "demo" / "noise-log.json",
+        "static_markdown_report": tmp_path / "报告" / "demo" / "report.md",
+        "static_docx_report": tmp_path / "报告" / "demo" / "report.docx",
     }
 
     result = adapter.adapt(
@@ -54,6 +56,8 @@ def test_static_adapter_normalizes_static_outputs(tmp_path: Path) -> None:
             analysis_report=(tmp_path / "cache" / "demo" / "analysis.json").resolve(),
             callback_config=(tmp_path / "cache" / "demo" / "callback-config.json").resolve(),
             noise_log=(tmp_path / "cache" / "demo" / "noise-log.json").resolve(),
+            static_markdown_report=(tmp_path / "报告" / "demo" / "report.md").resolve(),
+            static_docx_report=(tmp_path / "报告" / "demo" / "report.docx").resolve(),
         ),
     )
 

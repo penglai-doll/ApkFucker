@@ -73,6 +73,8 @@ def test_job_service_loads_static_workspace_from_real_artifacts(tmp_path: Path) 
     assert job.input_target == str(sample_path)
     assert static_inputs.package_name == "com.demo.shell"
     assert static_inputs.artifact_paths.analysis_report == (fixture_root / "sample_analysis.json")
+    assert static_inputs.artifact_paths.static_markdown_report == (output_root / "报告" / "sample" / "report.md")
+    assert static_inputs.artifact_paths.static_docx_report == (output_root / "报告" / "sample" / "report.docx")
     assert len(method_index.methods) == 5
     assert fake_analyzer.calls == [(sample_path, output_root, "auto")]
 

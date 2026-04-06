@@ -80,6 +80,8 @@ class JobService:
                 "noise_log": artifacts.noise_log_json,
                 "jadx_sources": artifacts.jadx_sources_dir,
                 "jadx_project": artifacts.jadx_project_dir,
+                "static_markdown_report": artifacts.report_dir / "report.md",
+                "static_docx_report": artifacts.report_dir / "report.docx",
             },
         )
         method_index = (
