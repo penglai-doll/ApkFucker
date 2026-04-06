@@ -212,6 +212,7 @@ uv run apk-hacker \
 ```
 
 这个 runner 会选取当前计划里第一份已渲染脚本，调用 `frida -U -f <package> -l <script>` 做一次短时注入探针，并把结果折叠成单条 `frida_injection` 事件。它当前更适合做链路验证，还不是长期会话采集器。
+当你提供 `--frida-server-binary` 时，`Frida Inject` 也会在执行注入前自动做一次 bootstrap；如果当前样本 APK 还没有安装到目标设备上，它还会先尝试 `adb install -r` 自动补装，再继续进行最小注入探针。
 
 如果你已经安装了 Python 版 `frida` 模块，并且想把脚本消息真正回流到工作台，可以使用：
 
@@ -249,7 +250,7 @@ uv run pytest -q
 
 当前分支验证结果为：
 
-- `112 passed`
+- `113 passed`
 
 ## 注意事项
 
