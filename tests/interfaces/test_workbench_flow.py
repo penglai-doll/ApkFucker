@@ -600,3 +600,63 @@ def test_main_window_runs_injected_real_backend_when_mode_is_real_device(tmp_pat
     assert "1 event" in window.results_summary.summary_label.text()
     assert app is not None
     window.close()
+
+
+def test_main_window_routes_to_named_real_backend_preset(tmp_path: Path) -> None:
+    app = _app()
+    sample_path = tmp_path / "sample.apk"
+    sample_path.write_bytes(b"apk")
+    output_root = tmp_path / "artifacts"
+    fixture_root = Path("tests/fixtures/static_outputs").resolve()
+    jadx_sources = Path("tests/fixtures/jadx_sources").resolve()
+    fake_analyzer = _FakeStaticAnalyzer(
+        StaticArtifacts(
+            output_root=output_root,
+            report_dir=output_root / "报告" / "sample",
+            cache_dir=output_root / "cache" / "sample",
+            analysis_json=fixture_root / "sample_analysis.json",
+            callback_config_json=fixture_root / "sample_callback-config.json",
+            noise_log_json=output_root / "cache" / "sample" / "noise-log.json",
+            jadx_sources_dir=jadx_sources,
+            jadx_project_dir=None,
+        )
+    )
+    preset_events = (
+        HookEvent(
+            timestamp="2026-04-06T00:00:00+00:00",
+            job_id="job-1",
+            event_type="frida_session",
+            source="real",
+            class_name="frida",
+            method_name="attached",
+            arguments=("com.demo.shell", "1"),
+            return_value="attached",
+            stacktrace="",
+            raw_payload={"source_script": "02_builduploadurl.js"},
+        ),
+    )
+    preset_backend = _FakeRealBackend(preset_events)
+    controller = WorkbenchController(
+        job_service=JobService(static_analyzer=fake_analyzer),
+        scripts_root=tmp_path / "scripts",
+        db_root=tmp_path,
+        execution_backends={"real_frida_session": preset_backend},
+    )
+    window = MainWindow(controller=controller)
+
+    window.task_center.sample_path_input.setText(str(sample_path))
+    window.task_center.run_analysis_button.click()
+    window.method_index.search_input.setText("buildUploadUrl")
+    window.method_index.apply_search()
+    window.method_index.method_list.setCurrentRow(0)
+    window.method_index.add_selected_button.click()
+    window.script_plan.execution_mode_combo.setCurrentText("Frida Session")
+    window.script_plan.run_fake_button.click()
+
+    assert len(preset_backend.calls) == 1
+    assert window.execution_logs.log_list.count() == 1
+    assert "[02_builduploadurl.js]" in window.execution_logs.log_list.item(0).text()
+    assert "attached" in window.execution_logs.log_list.item(0).text()
+    assert "1 event" in window.results_summary.summary_label.text()
+    assert app is not None
+    window.close()

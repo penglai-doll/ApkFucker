@@ -104,6 +104,17 @@ uv run apk-hacker --help
 7. 用 `Fake Backend` 验证计划、日志与摘要是否符合预期
 8. 需要深入看反编译代码时，使用 `Open in JADX`
 
+当前 GUI 的执行模式下拉框已经内置这些预设：
+
+- `Fake Backend`
+- `Real Device`
+- `ADB Probe`
+- `Frida Probe`
+- `Frida Inject`
+- `Frida Session`
+
+其中后四者会直接调用仓库自带的后端 runner，适合本地逐步验证 `adb / frida` 链路；只有在你想接自定义执行器时，才需要继续使用 `--real-backend-command` 或环境变量覆盖 `Real Device`。
+
 ## 执行模式说明
 
 - `Fake Backend`

@@ -4,6 +4,7 @@ from collections.abc import Callable
 
 from PyQt6.QtWidgets import QComboBox, QLabel, QListWidget, QListWidgetItem, QPlainTextEdit, QPushButton, QVBoxLayout, QWidget
 
+from apk_hacker.application.services.execution_presets import EXECUTION_PRESETS
 from apk_hacker.domain.models.hook_plan import HookPlan, HookPlanItem
 
 
@@ -23,8 +24,8 @@ class ScriptPlanWidget(QWidget):
         self.preview.setPlaceholderText("Rendered script preview will appear here.")
         layout.addWidget(self.preview)
         self.execution_mode_combo = QComboBox()
-        self.execution_mode_combo.addItem("Fake Backend", userData="fake_backend")
-        self.execution_mode_combo.addItem("Real Device", userData="real_device")
+        for preset in EXECUTION_PRESETS:
+            self.execution_mode_combo.addItem(preset.label, userData=preset.key)
         layout.addWidget(self.execution_mode_combo)
         self.run_fake_button = QPushButton("Run Analysis")
         layout.addWidget(self.run_fake_button)

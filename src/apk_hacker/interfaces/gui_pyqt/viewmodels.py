@@ -3,9 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 import json
+import sys
 
 from apk_hacker.application.services.custom_script_service import CustomScriptRecord, CustomScriptService
 from apk_hacker.application.services.environment_service import EnvironmentService
+from apk_hacker.application.services.execution_presets import EXECUTION_PRESETS
 from apk_hacker.application.services.hook_plan_service import HookPlanService
 from apk_hacker.application.services.job_service import JobService
 from apk_hacker.application.services.static_adapter import StaticAdapter
@@ -90,16 +92,32 @@ class WorkbenchController:
         self._hook_plan_service = HookPlanService()
         self._traffic_capture_service = TrafficCaptureService()
         self._custom_scripts = CustomScriptService(scripts_root)
-        self._execution_backends = {
-            "fake_backend": FakeExecutionBackend(),
-            "real_device": RealExecutionBackend(),
-        }
+        self._execution_backends = self._build_execution_backends()
         if execution_backends is not None:
             self._execution_backends.update(execution_backends)
 
     @property
     def demo_available(self) -> bool:
         return self._fixture_root is not None and self._jadx_sources_root is not None
+
+    @staticmethod
+    def _build_execution_backends() -> dict[str, ExecutionBackend]:
+        command_modules = {
+            "real_adb_probe": "apk_hacker.tools.adb_probe_backend",
+            "real_frida_probe": "apk_hacker.tools.frida_probe_backend",
+            "real_frida_inject": "apk_hacker.tools.frida_inject_backend",
+            "real_frida_session": "apk_hacker.tools.frida_session_backend",
+        }
+        backends: dict[str, ExecutionBackend] = {
+            "fake_backend": FakeExecutionBackend(),
+            "real_device": RealExecutionBackend(),
+        }
+        for preset in EXECUTION_PRESETS:
+            module_name = command_modules.get(preset.key)
+            if module_name is None:
+                continue
+            backends[preset.key] = RealExecutionBackend(command=f"{sys.executable} -m {module_name}")
+        return backends
 
     def refresh_environment(self, state: WorkbenchState, announce: bool = True) -> WorkbenchState:
         snapshot = self._environment_service.inspect()
