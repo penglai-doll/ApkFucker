@@ -163,6 +163,16 @@ uv run apk-hacker \
 
 这个 runner 会选取当前计划里第一份已渲染脚本，调用 `frida -U -f <package> -l <script>` 做一次短时注入探针，并把结果折叠成单条 `frida_injection` 事件。它当前更适合做链路验证，还不是长期会话采集器。
 
+如果你已经安装了 Python 版 `frida` 模块，并且想把脚本消息真正回流到工作台，可以使用：
+
+```bash
+uv run apk-hacker \
+  --sample /path/to/sample.apk \
+  --real-backend-command "uv run apk-hacker-frida-session-backend"
+```
+
+这个 runner 会通过 Python `frida` API 执行 `spawn -> attach -> load -> resume`，并把脚本里的 `send(...)` 消息转成结构化事件。当前版本只做最小会话，不负责长期保持连接或复杂的多脚本编排。
+
 ## 目录说明
 
 - `src/apk_hacker/static_engine/`
