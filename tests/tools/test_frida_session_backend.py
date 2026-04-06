@@ -5,6 +5,7 @@ import sys
 
 from apk_hacker.application.services.hook_plan_service import HookPlanService
 from apk_hacker.domain.models.execution import ExecutionRequest
+from apk_hacker.domain.models.hook_plan import HookPlanSource
 from apk_hacker.domain.models.indexes import MethodIndexEntry
 from apk_hacker.infrastructure.execution.real_backend import RealExecutionBackend
 
@@ -39,14 +40,25 @@ class FakeScript:
 
     def load(self) -> None:
         _append({"op": "script.load", "source_length": len(self._source)})
+        method_name = "unknown"
+        arguments = []
+        if "custom-one" in self._source:
+            method_name = "custom-one"
+            arguments = ["custom-one"]
+        elif "custom-two" in self._source:
+            method_name = "custom-two"
+            arguments = ["custom-two"]
+        elif "buildUploadUrl" in self._source:
+            method_name = "buildUploadUrl"
+            arguments = ["plaintext"]
         payload = json.dumps(
             {
                 "event_type": "method_call",
                 "class_name": "com.demo.net.Config",
-                "method_name": "buildUploadUrl",
-                "arguments": ["plaintext"],
+                "method_name": method_name,
+                "arguments": arguments,
                 "return_value": "ciphertext",
-                "stacktrace": "com.demo.net.Config.buildUploadUrl:1",
+                "stacktrace": f"com.demo.net.Config.{method_name}:1",
             },
             ensure_ascii=False,
         )
@@ -138,3 +150,79 @@ def test_packaged_frida_session_backend_forwards_script_messages(tmp_path: Path)
     assert events[0].event_type == "method_call"
     assert events[0].method_name == "buildUploadUrl"
     assert events[0].arguments == ("plaintext",)
+
+
+def test_packaged_frida_session_backend_loads_all_scripts_in_plan_order(tmp_path: Path) -> None:
+    state_file = tmp_path / "fake-frida-state.jsonl"
+    _write_fake_frida_module(tmp_path)
+    pythonpath = os.environ.get("PYTHONPATH", "")
+    env_pythonpath = f"{tmp_path}:{pythonpath}" if pythonpath else str(tmp_path)
+    custom_one = tmp_path / "custom-one.js"
+    custom_one.write_text("send('custom-one');\n", encoding="utf-8")
+    custom_two = tmp_path / "custom-two.js"
+    custom_two.write_text("send('custom-two');\n", encoding="utf-8")
+    method = MethodIndexEntry(
+        class_name="com.demo.net.Config",
+        method_name="buildUploadUrl",
+        parameter_types=("String",),
+        return_type="String",
+        is_constructor=False,
+        overload_count=1,
+        source_path="sources/com/demo/net/Config.java",
+        line_hint=4,
+    )
+    plan = HookPlanService().plan_for_sources(
+        [
+            HookPlanSource.from_custom_script("custom-one", str(custom_one)),
+            HookPlanSource.from_method(method),
+            HookPlanSource.from_custom_script("custom-two", str(custom_two)),
+        ]
+    )
+    backend = RealExecutionBackend(
+        command=f"{sys.executable} -m apk_hacker.tools.frida_session_backend",
+        extra_env={
+            "PYTHONPATH": env_pythonpath,
+            "APKHACKER_FAKE_FRIDA_STATE": str(state_file),
+            "APKHACKER_FRIDA_SESSION_SECONDS": "0.1",
+        },
+    )
+
+    events = backend.execute(
+        ExecutionRequest(
+            job_id="job-1",
+            plan=plan,
+            package_name="com.demo.shell",
+        )
+    )
+
+    records = [
+        json.loads(line)
+        for line in state_file.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert [record["op"] for record in records] == [
+        "frida.get_usb_device",
+        "device.spawn",
+        "device.attach",
+        "session.create_script",
+        "script.on",
+        "script.load",
+        "session.create_script",
+        "script.on",
+        "script.load",
+        "session.create_script",
+        "script.on",
+        "script.load",
+        "device.resume",
+        "session.detach",
+    ]
+    assert [event.method_name for event in events] == [
+        "custom-one",
+        "buildUploadUrl",
+        "custom-two",
+    ]
+    assert [event.raw_payload["source_script"] for event in events] == [
+        "01_custom-one.js",
+        "02_builduploadurl.js",
+        "03_custom-two.js",
+    ]

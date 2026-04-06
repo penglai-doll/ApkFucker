@@ -17,7 +17,9 @@ class ExecutionLogsWidget(QWidget):
     def set_events(self, events: tuple[HookEvent, ...]) -> None:
         self.log_list.clear()
         for event in events:
+            source_script = str(event.raw_payload.get("source_script", "")).strip()
+            prefix = f"[{source_script}] " if source_script else ""
             QListWidgetItem(
-                f"{event.event_type}: {event.class_name}.{event.method_name} -> {event.return_value or '-'}",
+                f"{prefix}{event.event_type}: {event.class_name}.{event.method_name} -> {event.return_value or '-'}",
                 self.log_list,
             )
