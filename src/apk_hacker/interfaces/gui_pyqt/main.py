@@ -52,18 +52,21 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 def build_window(args: argparse.Namespace) -> MainWindow:
     execution_backend_env = _build_execution_backend_env(args)
+    repo_root = Path(__file__).resolve().parents[4]
+    resolved_db_root = args.db_root or (repo_root / "cache" / "gui")
     controller = None
     if args.real_backend_command:
         controller = WorkbenchController(
             fixture_root=args.fixture_root,
             jadx_sources_root=args.jadx_sources_root,
             scripts_root=args.scripts_root,
-            db_root=args.db_root,
+            db_root=resolved_db_root,
             execution_backend_env=execution_backend_env,
             execution_backends={
                 "real_device": RealExecutionBackend(
                     command=args.real_backend_command,
                     extra_env=execution_backend_env,
+                    artifact_root=resolved_db_root / "execution-runs",
                 ),
             },
         )
@@ -72,7 +75,7 @@ def build_window(args: argparse.Namespace) -> MainWindow:
             fixture_root=args.fixture_root,
             jadx_sources_root=args.jadx_sources_root,
             scripts_root=args.scripts_root,
-            db_root=args.db_root,
+            db_root=resolved_db_root,
             execution_backend_env=execution_backend_env,
         )
 
@@ -80,7 +83,7 @@ def build_window(args: argparse.Namespace) -> MainWindow:
         fixture_root=args.fixture_root,
         jadx_sources_root=args.jadx_sources_root,
         scripts_root=args.scripts_root,
-        db_root=args.db_root,
+        db_root=resolved_db_root,
         jadx_gui_path=args.jadx_gui_path,
         controller=controller,
     )

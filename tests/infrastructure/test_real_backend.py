@@ -69,3 +69,59 @@ def test_real_backend_surfaces_command_failures(tmp_path: Path) -> None:
 
     with raises(ExecutionBackendUnavailable, match="backend failed"):
         backend.execute(ExecutionRequest(job_id="job-1", plan=HookPlan(items=())))
+
+
+def test_real_backend_persists_execution_bundle_when_artifact_root_is_configured(tmp_path: Path) -> None:
+    helper = tmp_path / "emit_events.py"
+    helper.write_text(
+        """
+import json
+print("helper-started")
+print(json.dumps({
+    "event_type": "method_call",
+    "class_name": "com.demo.net.Config",
+    "method_name": "buildUploadUrl",
+    "arguments": ["ok"],
+    "return_value": "1",
+    "stacktrace": "com.demo.net.Config.buildUploadUrl:1"
+}))
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    artifact_root = tmp_path / "runs"
+    backend = RealExecutionBackend(command=f"{sys.executable} {helper}", artifact_root=artifact_root)
+    events = backend.execute(
+        ExecutionRequest(
+            job_id="job-1",
+            plan=HookPlan(items=()),
+            package_name="com.demo.shell",
+        )
+    )
+
+    assert len(events) == 2
+    bundle_event = events[0]
+    assert bundle_event.event_type == "execution_bundle"
+    bundle_dir = Path(bundle_event.arguments[0])
+    assert bundle_dir.exists()
+    assert (bundle_dir / "plan.json").exists()
+    assert (bundle_dir / "scripts").is_dir()
+    assert (bundle_dir / "stdout.log").read_text(encoding="utf-8").startswith("helper-started")
+    assert (bundle_dir / "stderr.log").read_text(encoding="utf-8") == ""
+    assert events[1].event_type == "method_call"
+
+
+def test_real_backend_surfaces_artifact_bundle_path_on_failure(tmp_path: Path) -> None:
+    helper = tmp_path / "fail.py"
+    helper.write_text("import sys\nprint('helper-started')\nsys.stderr.write('backend failed\\n')\nsys.exit(2)\n", encoding="utf-8")
+
+    artifact_root = tmp_path / "runs"
+    backend = RealExecutionBackend(command=f"{sys.executable} {helper}", artifact_root=artifact_root)
+
+    with raises(ExecutionBackendUnavailable, match="Artifacts saved to"):
+        backend.execute(ExecutionRequest(job_id="job-1", plan=HookPlan(items=())))
+
+    [bundle_dir] = list(artifact_root.iterdir())
+    assert (bundle_dir / "stdout.log").read_text(encoding="utf-8").startswith("helper-started")
+    assert "backend failed" in (bundle_dir / "stderr.log").read_text(encoding="utf-8")

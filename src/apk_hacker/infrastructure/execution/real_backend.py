@@ -8,6 +8,7 @@ from pathlib import Path
 import shlex
 import subprocess
 from tempfile import TemporaryDirectory
+from uuid import uuid4
 
 from apk_hacker.domain.models.execution import ExecutionRequest
 from apk_hacker.domain.models.hook_event import HookEvent
@@ -105,14 +106,60 @@ def _parse_events(job_id: str, stdout: str) -> tuple[HookEvent, ...]:
     return tuple(events)
 
 
+def _run_bundle_event(
+    job_id: str,
+    workdir: Path,
+    plan_path: Path,
+    stdout_path: Path,
+    stderr_path: Path,
+    command: str,
+) -> HookEvent:
+    return HookEvent(
+        timestamp=_now_iso(),
+        job_id=job_id,
+        event_type="execution_bundle",
+        source="real",
+        class_name="backend",
+        method_name="artifacts",
+        arguments=(str(workdir), str(plan_path), str(stdout_path), str(stderr_path)),
+        return_value=command,
+        stacktrace="",
+        raw_payload={
+            "event_type": "execution_bundle",
+            "class_name": "backend",
+            "method_name": "artifacts",
+            "arguments": (str(workdir), str(plan_path), str(stdout_path), str(stderr_path)),
+            "return_value": command,
+            "stacktrace": "",
+        },
+    )
+
+
 class CommandExecutionRunner:
-    def __init__(self, command: str, extra_env: Mapping[str, str] | None = None) -> None:
+    def __init__(
+        self,
+        command: str,
+        extra_env: Mapping[str, str] | None = None,
+        artifact_root: Path | None = None,
+    ) -> None:
         self._command = command
         self._extra_env = dict(extra_env or {})
+        self._artifact_root = artifact_root
+
+    def _make_workdir(self, job_id: str) -> tuple[Path, Callable[[], None]]:
+        if self._artifact_root is None:
+            temp_dir = TemporaryDirectory(prefix="apkhacker-real-backend-")
+            return Path(temp_dir.name), temp_dir.cleanup
+
+        self._artifact_root.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+        workdir = self._artifact_root / f"{job_id}-{stamp}-{uuid4().hex[:8]}"
+        workdir.mkdir(parents=True, exist_ok=False)
+        return workdir, (lambda: None)
 
     def __call__(self, request: ExecutionRequest) -> tuple[HookEvent, ...]:
-        with TemporaryDirectory(prefix="apkhacker-real-backend-") as temp_dir:
-            workdir = Path(temp_dir)
+        workdir, cleanup = self._make_workdir(request.job_id)
+        try:
             scripts_dir = workdir / "scripts"
             scripts_dir.mkdir(parents=True, exist_ok=True)
 
@@ -133,6 +180,8 @@ class CommandExecutionRunner:
                 json.dumps(_serialize_plan(request.plan), ensure_ascii=False, indent=2),
                 encoding="utf-8",
             )
+            stdout_path = workdir / "stdout.log"
+            stderr_path = workdir / "stderr.log"
 
             env = os.environ.copy()
             env.update(self._extra_env)
@@ -157,12 +206,31 @@ class CommandExecutionRunner:
                 text=True,
                 check=False,
             )
+            stdout_path.write_text(completed.stdout, encoding="utf-8")
+            stderr_path.write_text(completed.stderr, encoding="utf-8")
             if completed.returncode != 0:
                 stderr = completed.stderr.strip()
                 stdout = completed.stdout.strip()
                 detail = stderr or stdout or f"exit code {completed.returncode}"
+                if self._artifact_root is not None:
+                    detail = f"{detail}. Artifacts saved to {workdir}"
                 raise ExecutionBackendUnavailable(f"Real device execution failed: {detail}")
-            return _parse_events(request.job_id, completed.stdout)
+            parsed_events = _parse_events(request.job_id, completed.stdout)
+            if self._artifact_root is None:
+                return parsed_events
+            return (
+                _run_bundle_event(
+                    request.job_id,
+                    workdir=workdir,
+                    plan_path=plan_path,
+                    stdout_path=stdout_path,
+                    stderr_path=stderr_path,
+                    command=self._command,
+                ),
+                *parsed_events,
+            )
+        finally:
+            cleanup()
 
 
 class RealExecutionBackend(ExecutionBackend):
@@ -171,11 +239,16 @@ class RealExecutionBackend(ExecutionBackend):
         runner: Callable[[ExecutionRequest], tuple[HookEvent, ...]] | None = None,
         command: str | None = None,
         extra_env: Mapping[str, str] | None = None,
+        artifact_root: Path | None = None,
     ) -> None:
         resolved_runner = runner
         resolved_command = command or os.environ.get(ENV_COMMAND)
         if resolved_runner is None and resolved_command:
-            resolved_runner = CommandExecutionRunner(resolved_command, extra_env=extra_env)
+            resolved_runner = CommandExecutionRunner(
+                resolved_command,
+                extra_env=extra_env,
+                artifact_root=artifact_root,
+            )
         self._runner = resolved_runner
 
     @property

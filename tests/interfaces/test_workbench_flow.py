@@ -787,7 +787,10 @@ print(json.dumps({
         scripts_root=tmp_path / "scripts",
         db_root=tmp_path,
         execution_backends={
-            "real_device": RealExecutionBackend(command=f"{sys.executable} {helper}"),
+            "real_device": RealExecutionBackend(
+                command=f"{sys.executable} {helper}",
+                artifact_root=tmp_path / "execution-runs",
+            ),
         },
     )
     window = MainWindow(controller=controller)
@@ -812,5 +815,7 @@ print(json.dumps({
         "/data/local/tmp/custom-frida-server",
         "3.5",
     )
+    assert window.results_summary.db_path_label.text().endswith("-run-1.sqlite3")
+    assert "execution-runs" in window.results_summary.bundle_path_label.text()
     assert app is not None
     window.close()

@@ -334,7 +334,11 @@ class MainWindow(QMainWindow):
         )
         self.execution_logs.set_events(self._state.hook_events)
         self.traffic_capture.set_capture(self._state.traffic_capture)
-        self.results_summary.set_summary(self._state.summary_text)
+        self.results_summary.set_summary(
+            self._state.summary_text,
+            db_path=self._state.last_execution_db_path,
+            bundle_path=self._state.last_execution_bundle_path,
+        )
         self.open_jadx_action.setEnabled(self._can_open_in_jadx())
 
     def _can_open_in_jadx(self) -> bool:

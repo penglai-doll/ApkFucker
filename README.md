@@ -28,6 +28,8 @@
 - 脚本真实渲染与预览
 - `Open in JADX`
 - 工作台运行参数持久化
+- 真实后端运行包持久化
+- 日志事件详情面板
 
 当前未完成：
 
@@ -131,6 +133,7 @@ uv run apk-hacker --help
 `Real Device` 本身会自动路由到当前最合适的内置后端：优先 `Frida Session`，其次 `Frida Inject`、`Frida Probe`、`ADB Probe`；如果你显式传入 `--real-backend-command`，则优先使用你的自定义后端。
 如果你不想每次都从命令行传参数，工作台的 `Task Center` 里也提供了 `Device Serial`、`Frida Server Binary`、`Frida Remote Path` 和 `Session Seconds` 四个输入框；它们会直接透传到真实后端执行环境中。
 这些输入以及上次使用的样本路径、执行模式，都会保存在本地 `workbench-settings.json` 里，重新打开工作台后会自动恢复。
+当你走真实后端链路时，工作台还会把每次执行对应的 `plan.json`、渲染脚本、`stdout.log` 和 `stderr.log` 保存在本地运行包目录里，并在 `Results Summary` 页直接显示 SQLite 和运行包路径。
 
 ## 执行模式说明
 
@@ -253,7 +256,7 @@ uv run pytest -q
 
 当前分支验证结果为：
 
-- `116 passed`
+- `119 passed`
 
 ## 注意事项
 

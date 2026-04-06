@@ -105,9 +105,11 @@ print(json.dumps({
         )
     )
 
-    assert len(events) == 1
-    assert events[0].event_type == "cli_backend"
-    assert events[0].arguments == ("com.demo.shell",)
+    assert len(events) == 2
+    assert events[0].event_type == "execution_bundle"
+    assert Path(events[0].arguments[0]).exists()
+    assert events[1].event_type == "cli_backend"
+    assert events[1].arguments == ("com.demo.shell",)
     assert app is not None
     window.close()
 

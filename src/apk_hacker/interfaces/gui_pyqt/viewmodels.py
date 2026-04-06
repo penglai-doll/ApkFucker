@@ -76,6 +76,8 @@ class WorkbenchState:
     custom_script_draft_content: str = ""
     search_query: str = ""
     run_count: int = 0
+    last_execution_db_path: Path | None = None
+    last_execution_bundle_path: Path | None = None
     summary_text: str = "No analysis run yet."
 
 
@@ -105,7 +107,7 @@ class WorkbenchController:
         self._hook_plan_service = HookPlanService()
         self._traffic_capture_service = TrafficCaptureService()
         self._custom_scripts = CustomScriptService(scripts_root)
-        self._execution_backends = self._build_execution_backends(execution_backend_env)
+        self._execution_backends = self._build_execution_backends_with_root(db_root, execution_backend_env)
         if execution_backends is not None:
             self._execution_backends.update(execution_backends)
 
@@ -133,6 +135,13 @@ class WorkbenchController:
 
     @staticmethod
     def _build_execution_backends(extra_env: Mapping[str, str] | None = None) -> dict[str, ExecutionBackend]:
+        return WorkbenchController._build_execution_backends_with_root(None, extra_env)
+
+    @staticmethod
+    def _build_execution_backends_with_root(
+        db_root: Path | None,
+        extra_env: Mapping[str, str] | None = None,
+    ) -> dict[str, ExecutionBackend]:
         command_modules = {
             "real_adb_probe": "apk_hacker.tools.adb_probe_backend",
             "real_frida_bootstrap": "apk_hacker.tools.frida_bootstrap_backend",
@@ -140,9 +149,10 @@ class WorkbenchController:
             "real_frida_inject": "apk_hacker.tools.frida_inject_backend",
             "real_frida_session": "apk_hacker.tools.frida_session_backend",
         }
+        artifact_root = None if db_root is None else db_root / "execution-runs"
         backends: dict[str, ExecutionBackend] = {
             "fake_backend": FakeExecutionBackend(),
-            "real_device": RealExecutionBackend(),
+            "real_device": RealExecutionBackend(artifact_root=artifact_root),
         }
         for preset in EXECUTION_PRESETS:
             module_name = command_modules.get(preset.key)
@@ -151,6 +161,7 @@ class WorkbenchController:
             backends[preset.key] = RealExecutionBackend(
                 command=f"{sys.executable} -m {module_name}",
                 extra_env=extra_env,
+                artifact_root=artifact_root,
             )
         return backends
 
@@ -439,7 +450,15 @@ class WorkbenchController:
         run_count = state.run_count + 1
         db_path = self._db_root / f"{state.current_job.job_id}-run-{run_count}.sqlite3"
         store = HookLogStore(db_path)
+        bundle_path = None
+        persisted_events: list[HookEvent] = []
         for event in events:
+            if event.event_type == "execution_bundle":
+                if event.arguments:
+                    bundle_path = Path(event.arguments[0])
+                continue
+            persisted_events.append(event)
+        for event in persisted_events:
             store.insert(replace(event, job_id=state.current_job.job_id))
         rows = tuple(store.list_for_job(state.current_job.job_id))
         requested_label = label_for_preset(state.execution_mode)
@@ -452,6 +471,8 @@ class WorkbenchController:
             state,
             hook_events=rows,
             run_count=run_count,
+            last_execution_db_path=db_path,
+            last_execution_bundle_path=bundle_path,
             summary_text=(
                 f"Captured {len(rows)} event(s) from {len(state.hook_plan.items)} planned hook(s) "
                 f"via {execution_detail}."
