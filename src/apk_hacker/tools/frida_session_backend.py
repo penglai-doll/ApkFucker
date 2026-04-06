@@ -49,6 +49,13 @@ def _load_frida_module():
     return frida
 
 
+def _connect_device(frida_module):
+    device_serial = os.environ.get("APKHACKER_DEVICE_SERIAL", "").strip()
+    if device_serial:
+        return frida_module.get_device(device_serial, timeout=5)
+    return frida_module.get_usb_device(timeout=5)
+
+
 def _coerce_message(message: dict[str, Any], source_script: str | None = None) -> dict[str, object] | None:
     if message.get("type") == "send":
         payload = message.get("payload")
@@ -184,7 +191,7 @@ def main() -> int:
         return _emit_events(events)
 
     try:
-        device = frida.get_usb_device(timeout=5)
+        device = _connect_device(frida)
     except Exception as exc:
         bootstrap_binary = os.environ.get(FRIDA_SERVER_BINARY_ENV, "").strip()
         if not bootstrap_binary:
@@ -196,7 +203,7 @@ def main() -> int:
             events.append(_session_error_event("device_connect", target_package, str(exc)))
             return _emit_events(events)
         try:
-            device = frida.get_usb_device(timeout=5)
+            device = _connect_device(frida)
         except Exception as retry_exc:
             events.append(_session_error_event("device_connect", target_package, str(retry_exc)))
             return _emit_events(events)

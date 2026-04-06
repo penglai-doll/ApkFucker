@@ -6,22 +6,19 @@ from typing import Sequence
 
 from PyQt6.QtWidgets import QApplication
 
+from apk_hacker.application.services.execution_runtime import build_execution_backend_env
 from apk_hacker.infrastructure.execution.real_backend import RealExecutionBackend
 from apk_hacker.interfaces.gui_pyqt.main_window import MainWindow
 from apk_hacker.interfaces.gui_pyqt.viewmodels import WorkbenchController
 
 
 def _build_execution_backend_env(args: argparse.Namespace) -> dict[str, str]:
-    env: dict[str, str] = {}
-    if args.device_serial:
-        env["APKHACKER_DEVICE_SERIAL"] = args.device_serial
-    if args.frida_server_binary is not None:
-        env["APKHACKER_FRIDA_SERVER_BINARY"] = str(args.frida_server_binary)
-    if args.frida_server_remote_path:
-        env["APKHACKER_FRIDA_SERVER_REMOTE_PATH"] = args.frida_server_remote_path
-    if args.frida_session_seconds is not None:
-        env["APKHACKER_FRIDA_SESSION_SECONDS"] = str(args.frida_session_seconds)
-    return env
+    return build_execution_backend_env(
+        device_serial=args.device_serial,
+        frida_server_binary=args.frida_server_binary,
+        frida_server_remote_path=args.frida_server_remote_path,
+        frida_session_seconds=args.frida_session_seconds,
+    )
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -54,12 +51,15 @@ def build_window(args: argparse.Namespace) -> MainWindow:
     execution_backend_env = _build_execution_backend_env(args)
     repo_root = Path(__file__).resolve().parents[4]
     resolved_db_root = args.db_root or (repo_root / "cache" / "gui")
+    resolved_scripts_root = args.scripts_root or (
+        repo_root / "user_data" / "frida_plugins" / "custom"
+    )
     controller = None
     if args.real_backend_command:
         controller = WorkbenchController(
             fixture_root=args.fixture_root,
             jadx_sources_root=args.jadx_sources_root,
-            scripts_root=args.scripts_root,
+            scripts_root=resolved_scripts_root,
             db_root=resolved_db_root,
             execution_backend_env=execution_backend_env,
             execution_backends={
@@ -74,7 +74,7 @@ def build_window(args: argparse.Namespace) -> MainWindow:
         controller = WorkbenchController(
             fixture_root=args.fixture_root,
             jadx_sources_root=args.jadx_sources_root,
-            scripts_root=args.scripts_root,
+            scripts_root=resolved_scripts_root,
             db_root=resolved_db_root,
             execution_backend_env=execution_backend_env,
         )
@@ -82,7 +82,7 @@ def build_window(args: argparse.Namespace) -> MainWindow:
     window = MainWindow(
         fixture_root=args.fixture_root,
         jadx_sources_root=args.jadx_sources_root,
-        scripts_root=args.scripts_root,
+        scripts_root=resolved_scripts_root,
         db_root=resolved_db_root,
         jadx_gui_path=args.jadx_gui_path,
         controller=controller,

@@ -9,7 +9,7 @@ from apk_hacker.domain.models.hook_plan import HookPlan
 from apk_hacker.application.services.job_service import JobService
 from apk_hacker.interfaces.gui_pyqt.main_window import MainWindow
 from apk_hacker.interfaces.gui_pyqt.viewmodels import WorkbenchController
-from apk_hacker.infrastructure.execution.backend import ExecutionBackend
+from apk_hacker.infrastructure.execution.backend import ExecutionBackend, ExecutionBackendUnavailable
 from apk_hacker.infrastructure.execution.real_backend import RealExecutionBackend
 from apk_hacker.static_engine.analyzer import StaticArtifacts
 from apk_hacker.domain.models.environment import EnvironmentSnapshot, ToolStatus
@@ -89,6 +89,19 @@ class _FakeRealBackend(ExecutionBackend):
     def execute(self, request: ExecutionRequest) -> tuple[HookEvent, ...]:
         self.calls.append(request)
         return self.events
+
+
+class _SequencedRealBackend(ExecutionBackend):
+    def __init__(self, responses: list[tuple[HookEvent, ...] | Exception]) -> None:
+        self._responses = list(responses)
+        self.calls: list[ExecutionRequest] = []
+
+    def execute(self, request: ExecutionRequest) -> tuple[HookEvent, ...]:
+        self.calls.append(request)
+        next_response = self._responses.pop(0)
+        if isinstance(next_response, Exception):
+            raise next_response
+        return next_response
 
 
 class _ReadyFridaEnvironmentService:
@@ -817,5 +830,110 @@ print(json.dumps({
     )
     assert window.results_summary.db_path_label.text().endswith("-run-1.sqlite3")
     assert "execution-runs" in window.results_summary.bundle_path_label.text()
+    assert app is not None
+    window.close()
+
+
+def test_main_window_clears_stale_execution_paths_after_real_backend_failure(tmp_path: Path) -> None:
+    app = _app()
+    helper = tmp_path / "emit_then_fail_backend.py"
+    helper.write_text(
+        """
+import json
+
+print(json.dumps({
+    "event_type": "first_run",
+    "class_name": "cli.real",
+    "method_name": "configured",
+    "arguments": [],
+    "return_value": "ok",
+    "stacktrace": ""
+}))
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    sample_path = tmp_path / "sample.apk"
+    sample_path.write_bytes(b"apk")
+    output_root = tmp_path / "artifacts"
+    fixture_root = Path("tests/fixtures/static_outputs").resolve()
+    jadx_sources = Path("tests/fixtures/jadx_sources").resolve()
+    fake_analyzer = _FakeStaticAnalyzer(
+        StaticArtifacts(
+            output_root=output_root,
+            report_dir=output_root / "报告" / "sample",
+            cache_dir=output_root / "cache" / "sample",
+            analysis_json=fixture_root / "sample_analysis.json",
+            callback_config_json=fixture_root / "sample_callback-config.json",
+            noise_log_json=output_root / "cache" / "sample" / "noise-log.json",
+            jadx_sources_dir=jadx_sources,
+            jadx_project_dir=None,
+        )
+    )
+    sequenced_backend = _SequencedRealBackend(
+        [
+            (
+                HookEvent(
+                    timestamp="2026-04-06T00:00:00+00:00",
+                    job_id="job-1",
+                    event_type="execution_bundle",
+                    source="real",
+                    class_name="backend",
+                    method_name="artifacts",
+                    arguments=(
+                        str(tmp_path / "execution-runs" / "run-1"),
+                        str(tmp_path / "execution-runs" / "run-1" / "plan.json"),
+                        str(tmp_path / "execution-runs" / "run-1" / "stdout.log"),
+                        str(tmp_path / "execution-runs" / "run-1" / "stderr.log"),
+                    ),
+                    return_value="python backend.py",
+                    stacktrace="",
+                    raw_payload={},
+                ),
+                HookEvent(
+                    timestamp="2026-04-06T00:00:01+00:00",
+                    job_id="job-1",
+                    event_type="runtime_env",
+                    source="real",
+                    class_name="cli.real",
+                    method_name="configured",
+                    arguments=(),
+                    return_value="ok",
+                    stacktrace="",
+                    raw_payload={},
+                ),
+            ),
+            ExecutionBackendUnavailable("Real device execution failed: boom"),
+        ]
+    )
+    controller = WorkbenchController(
+        job_service=JobService(static_analyzer=fake_analyzer),
+        scripts_root=tmp_path / "scripts",
+        db_root=tmp_path,
+        execution_backends={"real_device": sequenced_backend},
+    )
+    window = MainWindow(controller=controller)
+
+    window.task_center.sample_path_input.setText(str(sample_path))
+    window.task_center.run_analysis_button.click()
+    window.method_index.search_input.setText("buildUploadUrl")
+    window.method_index.apply_search()
+    window.method_index.method_list.setCurrentRow(0)
+    window.method_index.add_selected_button.click()
+    window.script_plan.execution_mode_combo.setCurrentText("Real Device")
+    window.script_plan.run_fake_button.click()
+
+    assert window.results_summary.copy_db_path_button.isEnabled()
+    assert window.results_summary.copy_bundle_path_button.isEnabled()
+    assert window.results_summary.db_path_label.text().startswith("Last Run DB: ")
+    assert window.results_summary.bundle_path_label.text().endswith("run-1")
+
+    window.script_plan.run_fake_button.click()
+
+    assert window.results_summary.db_path_label.text() == "Last Run DB: -"
+    assert window.results_summary.bundle_path_label.text() == "Execution Bundle: -"
+    assert not window.results_summary.copy_db_path_button.isEnabled()
+    assert not window.results_summary.copy_bundle_path_button.isEnabled()
+    assert "boom" in window.results_summary.summary_label.text().lower()
     assert app is not None
     window.close()

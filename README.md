@@ -108,6 +108,38 @@ uv run apk-hacker \
 uv run apk-hacker --help
 ```
 
+如果你想走 headless 批处理，也可以直接使用 CLI：
+
+```bash
+uv run apk-hacker-cli \
+  --sample /path/to/sample.apk \
+  --method-query buildUploadUrl \
+  --add-top-recommendations 2 \
+  --run
+```
+
+CLI 会输出一份 JSON 摘要，包含：
+
+- 静态分析识别到的包名
+- 方法索引数量与推荐数量
+- 当前 Hook 计划项
+- 执行模式、事件数量与事件详情
+- 最近一次执行产生的 SQLite 路径和运行包路径
+
+如果你希望直接走真实后端，也可以：
+
+```bash
+uv run apk-hacker-cli \
+  --sample /path/to/sample.apk \
+  --method-query buildUploadUrl \
+  --execution-mode real_device \
+  --real-backend-command "uv run apk-hacker-frida-session-backend" \
+  --device-serial serial-123 \
+  --run
+```
+
+当 CLI 无法匹配方法、没有计划项却要求执行，或真实后端返回受控错误时，它会向 `stderr` 输出 JSON 错误并以非零退出码结束，方便后续脚本或 CI 直接消费。
+
 ## 典型工作流
 
 1. 启动工作台

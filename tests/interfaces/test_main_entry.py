@@ -114,6 +114,25 @@ print(json.dumps({
     window.close()
 
 
+def test_build_window_uses_default_scripts_root_when_runtime_options_are_set(tmp_path: Path) -> None:
+    app = _app()
+
+    window = build_window(
+        parse_args(
+            [
+                "--db-root",
+                str(tmp_path / "cache"),
+                "--device-serial",
+                "serial-123",
+            ]
+        )
+    )
+
+    assert window._controller._scripts_root == Path(__file__).resolve().parents[2] / "user_data" / "frida_plugins" / "custom"
+    assert app is not None
+    window.close()
+
+
 def test_build_window_forwards_bootstrap_env_to_builtin_backends(tmp_path: Path) -> None:
     app = _app()
     adb_path = tmp_path / "adb"

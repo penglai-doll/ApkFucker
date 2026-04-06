@@ -152,6 +152,129 @@ def test_packaged_frida_session_backend_forwards_script_messages(tmp_path: Path)
     assert events[0].arguments == ("plaintext",)
 
 
+def test_packaged_frida_session_backend_honors_selected_device_serial(tmp_path: Path) -> None:
+    state_file = tmp_path / "fake-frida-serial.jsonl"
+    module_path = tmp_path / "frida.py"
+    module_path.write_text(
+        """
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+
+
+STATE_PATH = Path(os.environ["APKHACKER_FAKE_FRIDA_STATE"])
+
+
+def _append(record: dict[str, object]) -> None:
+    with STATE_PATH.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, ensure_ascii=False) + "\\n")
+
+
+class FakeScript:
+    def __init__(self, source: str) -> None:
+        self._source = source
+        self._callback = None
+
+    def on(self, event_name: str, callback) -> None:
+        _append({"op": "script.on", "event_name": event_name})
+        self._callback = callback
+
+    def load(self) -> None:
+        _append({"op": "script.load", "source_length": len(self._source)})
+        payload = json.dumps(
+            {
+                "event_type": "method_call",
+                "class_name": "com.demo.net.Config",
+                "method_name": "buildUploadUrl",
+                "arguments": ["serial"],
+                "return_value": "ok",
+                "stacktrace": "com.demo.net.Config.buildUploadUrl:1",
+            },
+            ensure_ascii=False,
+        )
+        self._callback({"type": "send", "payload": payload}, None)
+
+
+class FakeSession:
+    def create_script(self, source: str) -> FakeScript:
+        _append({"op": "session.create_script"})
+        return FakeScript(source)
+
+    def detach(self) -> None:
+        _append({"op": "session.detach"})
+
+
+class FakeDevice:
+    def spawn(self, argv: list[str]) -> int:
+        _append({"op": "device.spawn", "argv": argv})
+        return 7777
+
+    def attach(self, pid: int) -> FakeSession:
+        _append({"op": "device.attach", "pid": pid})
+        return FakeSession()
+
+    def resume(self, pid: int) -> None:
+        _append({"op": "device.resume", "pid": pid})
+
+
+def get_device(device_id: str, timeout: int | None = None) -> FakeDevice:
+    _append({"op": "frida.get_device", "device_id": device_id, "timeout": timeout})
+    return FakeDevice()
+
+
+def get_usb_device(timeout: int | None = None):
+    _append({"op": "frida.get_usb_device", "timeout": timeout})
+    raise AssertionError("get_usb_device should not be used when device serial is set")
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    pythonpath = os.environ.get("PYTHONPATH", "")
+    env_pythonpath = f"{tmp_path}:{pythonpath}" if pythonpath else str(tmp_path)
+    method = MethodIndexEntry(
+        class_name="com.demo.net.Config",
+        method_name="buildUploadUrl",
+        parameter_types=("String",),
+        return_type="String",
+        is_constructor=False,
+        overload_count=1,
+        source_path="sources/com/demo/net/Config.java",
+        line_hint=4,
+    )
+    plan = HookPlanService().plan_for_methods([method])
+    backend = RealExecutionBackend(
+        command=f"{sys.executable} -m apk_hacker.tools.frida_session_backend",
+        extra_env={
+            "PYTHONPATH": env_pythonpath,
+            "APKHACKER_FAKE_FRIDA_STATE": str(state_file),
+            "APKHACKER_DEVICE_SERIAL": "serial-123",
+            "APKHACKER_FRIDA_SESSION_SECONDS": "0.1",
+        },
+    )
+
+    events = backend.execute(
+        ExecutionRequest(
+            job_id="job-1",
+            plan=plan,
+            package_name="com.demo.shell",
+        )
+    )
+
+    records = [
+        json.loads(line)
+        for line in state_file.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert records[0] == {
+        "op": "frida.get_device",
+        "device_id": "serial-123",
+        "timeout": 5,
+    }
+    assert events[0].arguments == ("serial",)
+
+
 def test_packaged_frida_session_backend_loads_all_scripts_in_plan_order(tmp_path: Path) -> None:
     state_file = tmp_path / "fake-frida-state.jsonl"
     _write_fake_frida_module(tmp_path)
@@ -552,6 +675,13 @@ class FakeDevice:
         _append({{"op": "device.resume", "pid": pid}})
 
 
+def get_device(device_id: str, timeout: int | None = None) -> FakeDevice:
+    _append({{"op": "frida.get_device", "device_id": device_id, "timeout": timeout, "ready": READY_MARKER.exists()}})
+    if not READY_MARKER.exists():
+        raise RuntimeError("frida-server is not running")
+    return FakeDevice()
+
+
 def get_usb_device(timeout: int | None = None) -> FakeDevice:
     _append({{"op": "frida.get_usb_device", "timeout": timeout, "ready": READY_MARKER.exists()}})
     if not READY_MARKER.exists():
@@ -644,8 +774,8 @@ exit 1
         if line.strip()
     ]
     assert [record["op"] for record in records] == [
-        "frida.get_usb_device",
-        "frida.get_usb_device",
+        "frida.get_device",
+        "frida.get_device",
         "device.spawn",
         "device.attach",
         "session.create_script",
@@ -732,6 +862,11 @@ class FakeDevice:
         _append({"op": "device.resume", "pid": pid})
 
 
+def get_device(device_id: str, timeout: int | None = None) -> FakeDevice:
+    _append({"op": "frida.get_device", "device_id": device_id, "timeout": timeout})
+    return FakeDevice()
+
+
 def get_usb_device(timeout: int | None = None) -> FakeDevice:
     _append({"op": "frida.get_usb_device", "timeout": timeout})
     return FakeDevice()
@@ -813,7 +948,7 @@ exit 1
     assert [event.event_type for event in events[:1]] == ["app_install_status"]
     assert events[0].return_value == "installed"
     assert [record["op"] for record in frida_records] == [
-        "frida.get_usb_device",
+        "frida.get_device",
         "device.spawn",
         "device.attach",
         "session.create_script",

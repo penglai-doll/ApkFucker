@@ -382,7 +382,13 @@ class WorkbenchController:
         try:
             events = backend.execute(request)
         except ExecutionBackendUnavailable as exc:
-            return replace(state, hook_events=(), summary_text=str(exc))
+            return replace(
+                state,
+                hook_events=(),
+                last_execution_db_path=None,
+                last_execution_bundle_path=None,
+                summary_text=str(exc),
+            )
         return self._persist_execution(state, events, executed_backend_key=backend_key)
 
     def load_traffic_capture(self, state: WorkbenchState, har_path: Path) -> WorkbenchState:

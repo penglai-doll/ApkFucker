@@ -41,6 +41,9 @@ def _select_script(scripts_dir: Path) -> Path:
 
 
 def _build_command(target_package: str, script_path: Path) -> list[str]:
+    device_serial = os.environ.get("APKHACKER_DEVICE_SERIAL", "").strip()
+    if device_serial:
+        return ["frida", "-D", device_serial, "-f", target_package, "-l", str(script_path)]
     return ["frida", "-U", "-f", target_package, "-l", str(script_path)]
 
 

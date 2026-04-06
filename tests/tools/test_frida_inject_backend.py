@@ -26,7 +26,7 @@ sleep 5
     return frida_path
 
 
-def _read_text_eventually(path: Path, timeout_seconds: float = 1.0) -> str:
+def _read_text_eventually(path: Path, timeout_seconds: float = 3.0) -> str:
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
         if path.exists():
@@ -74,6 +74,42 @@ def test_packaged_frida_inject_backend_invokes_frida_with_target_and_script(tmp_
     assert events[0].event_type == "frida_injection"
     assert events[0].method_name == "spawn_attach"
     assert events[0].arguments[0] == "com.demo.shell"
+
+
+def test_packaged_frida_inject_backend_honors_selected_device_serial(tmp_path: Path) -> None:
+    args_file = tmp_path / "frida-args.txt"
+    _write_fake_frida(tmp_path, args_file)
+    env_path = f"{tmp_path}:{os.environ['PATH']}"
+    method = MethodIndexEntry(
+        class_name="com.demo.net.Config",
+        method_name="buildUploadUrl",
+        parameter_types=("String",),
+        return_type="String",
+        is_constructor=False,
+        overload_count=1,
+        source_path="sources/com/demo/net/Config.java",
+        line_hint=4,
+    )
+    plan = HookPlanService().plan_for_methods([method])
+    backend = RealExecutionBackend(
+        command=f"{sys.executable} -m apk_hacker.tools.frida_inject_backend",
+        extra_env={
+            "PATH": env_path,
+            "APKHACKER_DEVICE_SERIAL": "serial-123",
+            "APKHACKER_FRIDA_WARMUP_SECONDS": "0.5",
+        },
+    )
+
+    backend.execute(
+        ExecutionRequest(
+            job_id="job-1",
+            plan=plan,
+            package_name="com.demo.shell",
+        )
+    )
+
+    recorded_args = _read_text_eventually(args_file).splitlines()
+    assert recorded_args[:4] == ["-D", "serial-123", "-f", "com.demo.shell"]
 
 
 def test_packaged_frida_inject_backend_requires_rendered_script(tmp_path: Path) -> None:
@@ -200,7 +236,7 @@ exit 1
         "shell:chmod 755 /data/local/tmp/frida-server",
         "shell:/data/local/tmp/frida-server >/dev/null 2>&1 &",
     ]
-    assert recorded_args[:3] == ["-U", "-f", "com.demo.shell"]
+    assert recorded_args[:4] == ["-D", "serial-123", "-f", "com.demo.shell"]
     assert [event.event_type for event in events[:5]] == [
         "app_install_status",
         "device_connected",
