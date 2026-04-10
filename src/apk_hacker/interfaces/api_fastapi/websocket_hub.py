@@ -9,7 +9,12 @@ class WebSocketHub:
         await websocket.accept()
         try:
             while True:
-                payload = await websocket.receive_json()
+                try:
+                    payload = await websocket.receive_json()
+                except ValueError:
+                    continue
+                if not isinstance(payload, dict):
+                    continue
                 if str(payload.get("type", "")).strip().lower() == "ping":
                     await websocket.send_json({"type": "pong"})
         except WebSocketDisconnect:
