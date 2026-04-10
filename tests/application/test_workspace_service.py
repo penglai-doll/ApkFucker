@@ -19,5 +19,20 @@ def test_create_workspace_copies_sample_and_writes_metadata(tmp_path: Path) -> N
     assert metadata["title"] == "测试样本"
     assert metadata["case_id"] == workspace.case_id
     assert metadata["sample_filename"] == "original.apk"
+    assert metadata["workspace_version"] == 1
+    assert metadata["created_at"] == metadata["updated_at"]
     assert workspace.title == "测试样本"
     assert workspace.sample_path == workspace.workspace_root / "sample" / "original.apk"
+
+
+def test_create_workspace_defaults_title_to_sample_stem(tmp_path: Path) -> None:
+    sample = tmp_path / "payload.sample.apk"
+    sample.write_bytes(b"apk-bytes")
+    root = tmp_path / "cases"
+
+    service = WorkspaceService()
+    workspace = service.create_workspace(sample, root)
+
+    metadata = json.loads((workspace.workspace_root / "workspace.json").read_text(encoding="utf-8"))
+    assert workspace.title == "payload.sample"
+    assert metadata["title"] == "payload.sample"

@@ -11,6 +11,22 @@ class WorkspaceRegistry:
     last_opened_workspace: Path | None = None
 
 
+def _coerce_path(value: object) -> Path | None:
+    if value is None:
+        return None
+    if isinstance(value, Path):
+        return value
+    if not isinstance(value, (str, bytes)):
+        return None
+    text = value.decode() if isinstance(value, bytes) else value
+    if not text.strip():
+        return None
+    try:
+        return Path(text)
+    except (TypeError, ValueError):
+        return None
+
+
 class WorkspaceRegistryService:
     def __init__(self, path: Path) -> None:
         self._path = path
@@ -28,11 +44,9 @@ class WorkspaceRegistryService:
             return WorkspaceRegistry()
         if not isinstance(payload, dict):
             return WorkspaceRegistry()
-        default_workspace_root = payload.get("default_workspace_root")
-        last_opened_workspace = payload.get("last_opened_workspace")
         return WorkspaceRegistry(
-            default_workspace_root=Path(default_workspace_root) if default_workspace_root else None,
-            last_opened_workspace=Path(last_opened_workspace) if last_opened_workspace else None,
+            default_workspace_root=_coerce_path(payload.get("default_workspace_root")),
+            last_opened_workspace=_coerce_path(payload.get("last_opened_workspace")),
         )
 
     def save(self, registry: WorkspaceRegistry) -> None:

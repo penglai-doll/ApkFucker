@@ -42,4 +42,8 @@ class WorkspaceService:
             title=metadata["title"],
             workspace_root=destination_root,
             sample_path=copied_sample,
+            workspace_version=metadata["workspace_version"],
+            created_at=metadata["created_at"],
+            updated_at=metadata["updated_at"],
+            sample_filename=metadata["sample_filename"],
         )

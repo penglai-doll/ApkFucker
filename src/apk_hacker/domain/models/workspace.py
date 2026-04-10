@@ -10,3 +10,7 @@ class WorkspaceRecord:
     title: str
     workspace_root: Path
     sample_path: Path
+    workspace_version: int
+    created_at: str
+    updated_at: str
+    sample_filename: str
