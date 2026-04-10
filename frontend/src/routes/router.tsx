@@ -4,14 +4,17 @@ import { AppFrame } from "../components/layout/AppFrame";
 import { CaseQueuePage } from "../pages/CaseQueuePage";
 import { CaseWorkspacePage } from "../pages/CaseWorkspacePage";
 
-export const router = createBrowserRouter([
-  {
-    path: "/",
-    element: <AppFrame />,
-    children: [
-      { index: true, element: <Navigate replace to="/queue" /> },
-      { path: "queue", element: <CaseQueuePage /> },
-      { path: "workspace", element: <CaseWorkspacePage /> },
-    ],
-  },
-]);
+export function createAppRouter() {
+  return createBrowserRouter([
+    {
+      path: "/",
+      element: <AppFrame />,
+      children: [
+        { index: true, element: <Navigate replace to="/queue" /> },
+        { path: "queue", element: <CaseQueuePage /> },
+        { path: "workspace", element: <CaseWorkspacePage /> },
+        { path: "*", element: <Navigate replace to="/queue" /> },
+      ],
+    },
+  ]);
+}

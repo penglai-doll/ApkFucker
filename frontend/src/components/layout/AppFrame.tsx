@@ -1,21 +1,26 @@
 import { useEffect } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 
+import type { AppMode } from "../../lib/types";
 import { useAppStore } from "../../store/app-store";
 
-const modeTitles = {
+const modeTitles: Record<AppMode, string> = {
   queue: "案件队列",
   workspace: "案件工作台",
-} as const;
+};
+
+function getModeFromPath(pathname: string): AppMode {
+  return pathname.startsWith("/workspace") ? "workspace" : "queue";
+}
 
 export function AppFrame(): JSX.Element {
   const { pathname } = useLocation();
-  const currentMode = useAppStore((state) => state.currentMode);
   const setCurrentMode = useAppStore((state) => state.setCurrentMode);
+  const currentMode = getModeFromPath(pathname);
 
   useEffect(() => {
-    setCurrentMode(pathname.startsWith("/workspace") ? "workspace" : "queue");
-  }, [pathname, setCurrentMode]);
+    setCurrentMode(currentMode);
+  }, [currentMode, setCurrentMode]);
 
   return (
     <div>
