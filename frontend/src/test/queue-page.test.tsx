@@ -2,6 +2,7 @@ import "@testing-library/jest-dom/vitest";
 
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { MemoryRouter } from "react-router-dom";
 
 import { CaseQueuePage } from "../pages/CaseQueuePage";
 import { listCases } from "../lib/api";
@@ -26,11 +27,19 @@ describe("CaseQueuePage", () => {
       ],
     });
 
-    render(<CaseQueuePage />);
+    render(
+      <MemoryRouter>
+        <CaseQueuePage />
+      </MemoryRouter>,
+    );
 
     expect(screen.getByText("案件队列")).toBeInTheDocument();
     expect(await screen.findByRole("cell", { name: "Alpha 样本" })).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "case-001" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "进入 Alpha 样本 工作台" })).toHaveAttribute(
+      "href",
+      "/workspace/case-001",
+    );
     expect(vi.mocked(listCases)).toHaveBeenCalledTimes(1);
   });
 });

@@ -54,3 +54,30 @@ def test_get_workspace_returns_minimal_workspace_view(tmp_path: Path) -> None:
         "title": "工作台测试",
         "view": "workspace",
     }
+
+
+def test_workspace_lookup_survives_app_restart_for_override_root(tmp_path: Path) -> None:
+    default_root = tmp_path / "default-workspaces"
+    override_root = tmp_path / "override-workspaces"
+    sample = tmp_path / "override-demo.apk"
+    sample.write_bytes(b"apk")
+    registry_path = tmp_path / "api-registry.json"
+    client = TestClient(build_app(default_workspace_root=default_root, registry_path=registry_path))
+
+    create_response = client.post(
+        "/api/cases/import",
+        json={
+            "sample_path": str(sample),
+            "workspace_root": str(override_root),
+            "title": "切换根目录",
+        },
+    )
+    case_id = create_response.json()["case_id"]
+
+    reopened_client = TestClient(
+        build_app(default_workspace_root=default_root, registry_path=registry_path)
+    )
+    workspace_response = reopened_client.get(f"/api/cases/{case_id}/workspace")
+
+    assert workspace_response.status_code == 200
+    assert workspace_response.json()["title"] == "切换根目录"

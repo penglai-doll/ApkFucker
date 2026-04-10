@@ -54,3 +54,17 @@ def test_registry_degrades_safely_on_invalid_field_types(tmp_path: Path) -> None
 
     assert restored.default_workspace_root is None
     assert restored.last_opened_workspace is None
+
+
+def test_registry_tracks_known_workspace_roots_without_duplicates(tmp_path: Path) -> None:
+    registry = WorkspaceRegistryService(tmp_path / "settings.json")
+    root_one = tmp_path / "cases-a"
+    root_two = tmp_path / "cases-b"
+
+    registry.remember_workspace_root(root_one)
+    registry.remember_workspace_root(root_two)
+    registry.remember_workspace_root(root_one)
+
+    restored = registry.load()
+
+    assert restored.known_workspace_roots == (root_one, root_two)

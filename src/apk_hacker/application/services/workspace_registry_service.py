@@ -9,6 +9,7 @@ from pathlib import Path
 class WorkspaceRegistry:
     default_workspace_root: Path | None = None
     last_opened_workspace: Path | None = None
+    known_workspace_roots: tuple[Path, ...] = ()
 
 
 def _coerce_path(value: object) -> Path | None:
@@ -25,6 +26,21 @@ def _coerce_path(value: object) -> Path | None:
         return Path(text)
     except (TypeError, ValueError):
         return None
+
+
+def _coerce_paths(value: object) -> tuple[Path, ...]:
+    if not isinstance(value, list):
+        return ()
+
+    paths: list[Path] = []
+    seen: set[Path] = set()
+    for entry in value:
+        path = _coerce_path(entry)
+        if path is None or path in seen:
+            continue
+        seen.add(path)
+        paths.append(path)
+    return tuple(paths)
 
 
 class WorkspaceRegistryService:
@@ -47,6 +63,7 @@ class WorkspaceRegistryService:
         return WorkspaceRegistry(
             default_workspace_root=_coerce_path(payload.get("default_workspace_root")),
             last_opened_workspace=_coerce_path(payload.get("last_opened_workspace")),
+            known_workspace_roots=_coerce_paths(payload.get("known_workspace_roots")),
         )
 
     def save(self, registry: WorkspaceRegistry) -> None:
@@ -57,6 +74,7 @@ class WorkspaceRegistryService:
                 {
                     "default_workspace_root": str(registry.default_workspace_root) if registry.default_workspace_root else "",
                     "last_opened_workspace": str(registry.last_opened_workspace) if registry.last_opened_workspace else "",
+                    "known_workspace_roots": [str(path) for path in registry.known_workspace_roots],
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -71,5 +89,21 @@ class WorkspaceRegistryService:
             WorkspaceRegistry(
                 default_workspace_root=current.default_workspace_root,
                 last_opened_workspace=workspace_root,
+                known_workspace_roots=current.known_workspace_roots,
+            )
+        )
+
+    def remember_workspace_root(self, workspace_root: Path) -> None:
+        current = self.load()
+        normalized_root = workspace_root.expanduser()
+        roots = list(current.known_workspace_roots)
+        if normalized_root not in roots:
+            roots.append(normalized_root)
+
+        self.save(
+            WorkspaceRegistry(
+                default_workspace_root=current.default_workspace_root,
+                last_opened_workspace=current.last_opened_workspace,
+                known_workspace_roots=tuple(roots),
             )
         )
