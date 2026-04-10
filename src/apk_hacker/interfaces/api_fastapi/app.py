@@ -5,10 +5,6 @@ from pathlib import Path
 from fastapi import FastAPI, WebSocket
 
 from apk_hacker.interfaces.api_fastapi.routes_cases import build_cases_router
-from apk_hacker.interfaces.api_fastapi.routes_execution import build_execution_router
-from apk_hacker.interfaces.api_fastapi.routes_reports import build_reports_router
-from apk_hacker.interfaces.api_fastapi.routes_settings import build_settings_router
-from apk_hacker.interfaces.api_fastapi.routes_workspace import build_workspace_router
 from apk_hacker.interfaces.api_fastapi.websocket_hub import WebSocketHub
 
 
@@ -39,11 +35,7 @@ def build_app(
     app.state.scripts_root = resolved_scripts_root
     app.state.websocket_hub = hub
 
-    app.include_router(build_cases_router(workspace_root=resolved_workspace_root, db_root=resolved_db_root))
-    app.include_router(build_workspace_router(workspace_root=resolved_workspace_root))
-    app.include_router(build_execution_router(workspace_root=resolved_workspace_root))
-    app.include_router(build_reports_router(workspace_root=resolved_workspace_root, db_root=resolved_db_root))
-    app.include_router(build_settings_router(db_root=resolved_db_root))
+    app.include_router(build_cases_router(workspace_root=resolved_workspace_root))
 
     @app.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket) -> None:
