@@ -1,14 +1,17 @@
-import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
+import { createBrowserRouter, Navigate } from "react-router-dom";
 
-import App from "../App";
+import { AppFrame } from "../components/layout/AppFrame";
+import { CaseQueuePage } from "../pages/CaseQueuePage";
+import { CaseWorkspacePage } from "../pages/CaseWorkspacePage";
 
-export default function AppRouter(): JSX.Element {
-  return (
-    <HashRouter>
-      <Routes>
-        <Route path="/" element={<App />} />
-        <Route path="*" element={<Navigate replace to="/" />} />
-      </Routes>
-    </HashRouter>
-  );
-}
+export const router = createBrowserRouter([
+  {
+    path: "/",
+    element: <AppFrame />,
+    children: [
+      { index: true, element: <Navigate replace to="/queue" /> },
+      { path: "queue", element: <CaseQueuePage /> },
+      { path: "workspace", element: <CaseWorkspacePage /> },
+    ],
+  },
+]);
