@@ -20,10 +20,11 @@
       }
     ],
     "security": {
-      "capabilities": ["main-capability"]
+      "capabilities": ["default"]
     }
   },
   "bundle": {
-    "active": false
+    "active": true,
+    "targets": "app"
   }
 }
