@@ -6,6 +6,7 @@
   "scripts": {
     "dev:web": "vite --config frontend/vite.config.ts",
     "build:web": "vite build --config frontend/vite.config.ts",
+    "typecheck:web": "tsc --noEmit -p frontend/tsconfig.json",
     "test:web": "vitest run --config frontend/vite.config.ts",
     "dev:tauri": "tauri dev",
     "build:tauri": "tauri build",
