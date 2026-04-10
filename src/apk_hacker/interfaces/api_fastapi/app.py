@@ -12,29 +12,12 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[5]
 
 
-def _resolve_path(value: Path | None, fallback: Path) -> Path:
-    return value.expanduser() if value is not None else fallback
-
-
-def build_app(
-    *,
-    workspace_root: Path | None = None,
-    db_root: Path | None = None,
-    scripts_root: Path | None = None,
-    websocket_hub: WebSocketHub | None = None,
-) -> FastAPI:
+def build_app(*, workspace_root: Path | None = None) -> FastAPI:
     root = _repo_root()
-    resolved_workspace_root = _resolve_path(workspace_root, root / "cache" / "api" / "workspaces")
-    resolved_db_root = _resolve_path(db_root, root / "cache" / "api")
-    resolved_scripts_root = _resolve_path(scripts_root, root / "user_data" / "frida_plugins" / "custom")
-    hub = websocket_hub or WebSocketHub()
+    resolved_workspace_root = workspace_root.expanduser() if workspace_root is not None else root / "cache" / "api" / "workspaces"
+    hub = WebSocketHub()
 
     app = FastAPI(title="APKHacker Local API")
-    app.state.workspace_root = resolved_workspace_root
-    app.state.db_root = resolved_db_root
-    app.state.scripts_root = resolved_scripts_root
-    app.state.websocket_hub = hub
-
     app.include_router(build_cases_router(workspace_root=resolved_workspace_root))
 
     @app.websocket("/ws")
