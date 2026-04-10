@@ -21,7 +21,7 @@ describe("App shell", () => {
     render(<App />);
 
     expect(await screen.findByRole("heading", { name: "案件工作台" })).toBeInTheDocument();
-    expect(screen.getAllByText("案件工作台").length).toBeGreaterThan(1);
+    expect(screen.getByLabelText("当前模式")).toHaveTextContent("案件工作台");
   });
 
   it("keeps the Chinese shell for unknown routes", async () => {
@@ -30,6 +30,7 @@ describe("App shell", () => {
 
     expect(await screen.findByRole("heading", { name: "案件队列" })).toBeInTheDocument();
     expect(screen.getByText("APKHacker")).toBeInTheDocument();
+    expect(screen.getByLabelText("当前模式")).toHaveTextContent("案件队列");
     expect(screen.queryByText("Unexpected Application Error!")).not.toBeInTheDocument();
   });
 });

@@ -27,7 +27,7 @@ export function AppFrame(): JSX.Element {
       <header>
         <p>安卓 APK 动态分析工具</p>
         <h1>APKHacker</h1>
-        <p>{modeTitles[currentMode]}</p>
+        <p aria-label="当前模式">{modeTitles[currentMode]}</p>
         <nav aria-label="工作台主导航">
           <NavLink to="/queue">案件队列</NavLink>
           <NavLink to="/workspace">案件工作台</NavLink>
