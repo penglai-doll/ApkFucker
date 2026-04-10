@@ -34,6 +34,23 @@ class ExportableReport:
 
 
 class ReportExportService:
+    def build_workspace_summary(
+        self,
+        *,
+        workspace_title: str,
+        sample_path: Path,
+        method_count: int,
+        script_count: int,
+        case_count: int,
+    ) -> str:
+        sample_name = sample_path.name or str(sample_path)
+        title = workspace_title.strip() or sample_name
+        return (
+            f"已初始化工作区 {title}，样本 {sample_name}，"
+            f"静态方法 {method_count} 个，自定义脚本 {script_count} 个，"
+            f"案件队列 {case_count} 项。"
+        )
+
     def build_markdown(self, report: ExportableReport) -> str:
         static_inputs = report.static_inputs
         lines = [

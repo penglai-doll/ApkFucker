@@ -17,7 +17,7 @@ class CustomScriptService:
     def __init__(self, scripts_root: Path) -> None:
         self._scripts_root = scripts_root
 
-    def discover(self) -> list[CustomScriptRecord]:
+    def discover_records(self) -> tuple[CustomScriptRecord, ...]:
         self._scripts_root.mkdir(parents=True, exist_ok=True)
         records: list[CustomScriptRecord] = []
         for script_path in sorted(self._scripts_root.glob("*.js")):
@@ -28,7 +28,10 @@ class CustomScriptService:
                     script_path=script_path,
                 )
             )
-        return records
+        return tuple(records)
+
+    def discover(self) -> list[CustomScriptRecord]:
+        return list(self.discover_records())
 
     def save_script(self, name: str, content: str) -> CustomScriptRecord:
         normalized_name = self._normalize_name(name)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
@@ -35,6 +36,13 @@ class SupportsStaticAnalyze(Protocol):
     ) -> StaticArtifacts: ...
 
 
+@dataclass(frozen=True, slots=True)
+class StaticWorkspaceBundle:
+    job: AnalysisJob
+    static_inputs: StaticInputs
+    method_index: MethodIndex
+
+
 class JobService:
     def __init__(
         self,
@@ -59,12 +67,12 @@ class JobService:
     def get_job(self, job_id: str) -> AnalysisJob:
         return self._jobs[job_id]
 
-    def load_static_workspace(
+    def load_static_workspace_bundle(
         self,
         sample_path: Path,
         output_dir: Path | None = None,
         mode: str = "auto",
-    ) -> tuple[AnalysisJob, StaticInputs, MethodIndex]:
+    ) -> StaticWorkspaceBundle:
         job = self.create_job(sample_path)
         artifacts = self._static_analyzer.analyze(sample_path, output_dir=output_dir, mode=mode)
 
@@ -89,7 +97,20 @@ class JobService:
             if artifacts.jadx_sources_dir is not None
             else _empty_method_index()
         )
-        return job, static_inputs, method_index
+        return StaticWorkspaceBundle(
+            job=job,
+            static_inputs=static_inputs,
+            method_index=method_index,
+        )
+
+    def load_static_workspace(
+        self,
+        sample_path: Path,
+        output_dir: Path | None = None,
+        mode: str = "auto",
+    ) -> tuple[AnalysisJob, StaticInputs, MethodIndex]:
+        bundle = self.load_static_workspace_bundle(sample_path, output_dir=output_dir, mode=mode)
+        return bundle.job, bundle.static_inputs, bundle.method_index
 
     def run_fake_flow(
         self,
