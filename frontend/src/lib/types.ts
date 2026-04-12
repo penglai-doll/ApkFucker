@@ -99,6 +99,12 @@ export type StartupSettings = {
   title: string | null;
 };
 
+export type ApiHealth = {
+  status: string;
+  service: string;
+  last_workspace_root: string | null;
+};
+
 export type ExecutionStartResponse = {
   case_id: string;
   status: string;

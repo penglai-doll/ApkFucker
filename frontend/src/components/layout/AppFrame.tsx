@@ -1,9 +1,10 @@
-import { useEffect } from "react";
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 
+import { getApiHealth } from "../../lib/api";
 import { getStartupSettings } from "../../lib/api";
 import type { AppMode } from "../../lib/types";
+import type { ApiHealth } from "../../lib/types";
 import { useAppStore } from "../../store/app-store";
 
 const modeTitles: Record<AppMode, string> = {
@@ -21,6 +22,52 @@ export function AppFrame(): JSX.Element {
   const setCurrentMode = useAppStore((state) => state.setCurrentMode);
   const currentMode = getModeFromPath(pathname);
   const hasResolvedStartup = useRef(false);
+  const [apiHealth, setApiHealth] = useState<ApiHealth | null>(null);
+  const [apiHealthStatus, setApiHealthStatus] = useState<"checking" | "ready" | "unavailable">(
+    "checking",
+  );
+
+  useEffect(() => {
+    let active = true;
+    let timerId: number | null = null;
+
+    const scheduleNextProbe = (delayMs: number): void => {
+      timerId = window.setTimeout(() => {
+        void probeHealth();
+      }, delayMs);
+    };
+
+    const probeHealth = async (): Promise<void> => {
+      try {
+        const response = await getApiHealth();
+        if (!active) {
+          return;
+        }
+
+        setApiHealth(response);
+        setApiHealthStatus(response.status === "ok" ? "ready" : "unavailable");
+        scheduleNextProbe(response.status === "ok" ? 15000 : 3000);
+      } catch {
+        if (!active) {
+          return;
+        }
+
+        setApiHealth(null);
+        setApiHealthStatus("unavailable");
+        scheduleNextProbe(3000);
+      }
+    };
+
+    setApiHealthStatus("checking");
+    void probeHealth();
+
+    return () => {
+      active = false;
+      if (timerId !== null) {
+        window.clearTimeout(timerId);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     setCurrentMode(currentMode);
@@ -68,6 +115,14 @@ export function AppFrame(): JSX.Element {
         <p>安卓 APK 动态分析工具</p>
         <h1>APKHacker</h1>
         <p aria-label="当前模式">{modeTitles[currentMode]}</p>
+        <p>
+          {apiHealthStatus === "checking" ? "本地后端：检查中" : null}
+          {apiHealthStatus === "ready" ? "本地后端：已连接" : null}
+          {apiHealthStatus === "unavailable" ? "本地后端：未就绪" : null}
+        </p>
+        {apiHealthStatus === "ready" && apiHealth?.last_workspace_root ? (
+          <p>最近工作目录：{apiHealth.last_workspace_root}</p>
+        ) : null}
         <nav aria-label="工作台主导航">
           <NavLink to="/queue">案件队列</NavLink>
           <NavLink to="/workspace">案件工作台</NavLink>

@@ -1,4 +1,5 @@
 import type {
+  ApiHealth,
   CaseListResponse,
   ImportCaseRequest,
   ImportedCaseResponse,
@@ -50,6 +51,17 @@ export async function importCase(payload: ImportCaseRequest): Promise<ImportedCa
 export async function getStartupSettings(): Promise<StartupSettings> {
   const response = await fetch(apiUrl("/api/settings/startup"));
   return parseJsonResponse<StartupSettings>(response, "加载启动配置失败");
+}
+
+export async function getApiHealth(): Promise<ApiHealth> {
+  const response = await fetch(apiUrl("/api/settings/startup"));
+  const settings = await parseJsonResponse<StartupSettings>(response, "本地后端健康检查失败");
+
+  return {
+    status: "ok",
+    service: "local-api",
+    last_workspace_root: settings.last_workspace_root,
+  };
 }
 
 export async function getWorkspace(caseId: string): Promise<WorkspaceSummary> {

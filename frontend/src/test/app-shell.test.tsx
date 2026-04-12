@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "../App";
 import {
+  getApiHealth,
   getStartupSettings,
   getWorkspaceDetail,
   getWorkspaceMethods,
@@ -14,6 +15,7 @@ import {
 import { connectWorkspaceEvents } from "../lib/ws";
 
 vi.mock("../lib/api", () => ({
+  getApiHealth: vi.fn(),
   getStartupSettings: vi.fn(),
   getWorkspaceDetail: vi.fn(),
   getWorkspaceMethods: vi.fn(),
@@ -28,6 +30,7 @@ vi.mock("../lib/ws", () => ({
 describe("App shell", () => {
   beforeEach(() => {
     vi.mocked(getStartupSettings).mockReset();
+    vi.mocked(getApiHealth).mockReset();
     vi.mocked(listCases).mockReset();
     vi.mocked(getWorkspaceDetail).mockReset();
     vi.mocked(getWorkspaceMethods).mockReset();
@@ -38,6 +41,11 @@ describe("App shell", () => {
       last_workspace_root: null,
       case_id: null,
       title: null,
+    });
+    vi.mocked(getApiHealth).mockResolvedValue({
+      status: "ok",
+      service: "local-api",
+      last_workspace_root: "/tmp/workspaces",
     });
     vi.mocked(listCases).mockResolvedValue({ items: [] });
     vi.mocked(getWorkspaceDetail).mockResolvedValue({
@@ -70,7 +78,18 @@ describe("App shell", () => {
     expect(screen.getByText("APKHacker")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "案件队列" })).toHaveAttribute("href", "/queue");
     expect(screen.getByRole("link", { name: "案件工作台" })).toHaveAttribute("href", "/workspace");
+    expect(await screen.findByText("本地后端：已连接")).toBeInTheDocument();
+    expect(screen.getByText("最近工作目录：/tmp/workspaces")).toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: "案件队列" })).toBeInTheDocument();
+  });
+
+  it("shows an unavailable status when the local API health check fails", async () => {
+    vi.mocked(getApiHealth).mockRejectedValue(new Error("connection refused"));
+
+    window.history.replaceState({}, "", "/");
+    render(<App />);
+
+    expect(await screen.findByText("本地后端：未就绪")).toBeInTheDocument();
   });
 
   it("shows the workspace mode title when entering /workspace directly", async () => {

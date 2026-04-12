@@ -5,13 +5,20 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 
 import { CaseQueuePage } from "../pages/CaseQueuePage";
-import { importCase, listCases } from "../lib/api";
+import { getApiHealth, importCase, listCases } from "../lib/api";
+import { pickSampleFile, pickWorkspaceDirectory } from "../lib/desktop";
 
 const navigateMock = vi.fn();
 
 vi.mock("../lib/api", () => ({
+  getApiHealth: vi.fn(),
   listCases: vi.fn(),
   importCase: vi.fn(),
+}));
+
+vi.mock("../lib/desktop", () => ({
+  pickSampleFile: vi.fn(),
+  pickWorkspaceDirectory: vi.fn(),
 }));
 
 vi.mock("react-router-dom", async () => {
@@ -27,7 +34,15 @@ describe("CaseQueuePage", () => {
   beforeEach(() => {
     vi.mocked(listCases).mockReset();
     vi.mocked(importCase).mockReset();
+    vi.mocked(getApiHealth).mockReset();
+    vi.mocked(pickSampleFile).mockReset();
+    vi.mocked(pickWorkspaceDirectory).mockReset();
     navigateMock.mockReset();
+    vi.mocked(getApiHealth).mockResolvedValue({
+      status: "ok",
+      service: "local-api",
+      default_workspace_root: "/tmp/workspaces",
+    });
   });
 
   it("renders queue items from the first API call", async () => {
@@ -80,10 +95,10 @@ describe("CaseQueuePage", () => {
       </MemoryRouter>,
     );
 
+    await waitFor(() =>
+      expect(screen.getByLabelText("工作目录")).toHaveValue("/tmp/workspaces"),
+    );
     fireEvent.change(screen.getByLabelText("样本路径"), { target: { value: "/tmp/sample.apk" } });
-    fireEvent.change(screen.getByLabelText("workspace 根目录"), {
-      target: { value: "/tmp/workspaces" },
-    });
     fireEvent.change(screen.getByLabelText("案件标题"), { target: { value: "导入案件" } });
     fireEvent.submit(screen.getByRole("button", { name: "导入样本" }).closest("form")!);
 
@@ -107,14 +122,81 @@ describe("CaseQueuePage", () => {
       </MemoryRouter>,
     );
 
+    await waitFor(() =>
+      expect(screen.getByLabelText("工作目录")).toHaveValue("/tmp/workspaces"),
+    );
     fireEvent.change(screen.getByLabelText("样本路径"), { target: { value: "/tmp/sample.apk" } });
-    fireEvent.change(screen.getByLabelText("workspace 根目录"), {
-      target: { value: "/tmp/workspaces" },
-    });
     fireEvent.change(screen.getByLabelText("案件标题"), { target: { value: "导入案件" } });
     fireEvent.submit(screen.getByRole("button", { name: "导入样本" }).closest("form")!);
 
     expect(await screen.findByRole("alert")).toHaveTextContent("导入案件失败，请检查样本路径和工作目录。");
     expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  it("prefills the workspace root from the local api health response", async () => {
+    vi.mocked(listCases).mockResolvedValue({ items: [] });
+
+    render(
+      <MemoryRouter>
+        <CaseQueuePage />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("工作目录")).toHaveValue("/tmp/workspaces"),
+    );
+  });
+
+  it("fills the sample path from the native chooser when available", async () => {
+    vi.mocked(listCases).mockResolvedValue({ items: [] });
+    vi.mocked(pickSampleFile).mockResolvedValue("/tmp/from-dialog.apk");
+
+    render(
+      <MemoryRouter>
+        <CaseQueuePage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "选择样本文件" }));
+
+    await waitFor(() => expect(vi.mocked(pickSampleFile)).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(screen.getByLabelText("样本路径")).toHaveValue("/tmp/from-dialog.apk"),
+    );
+  });
+
+  it("fills the workspace root from the native chooser when available", async () => {
+    vi.mocked(listCases).mockResolvedValue({ items: [] });
+    vi.mocked(pickWorkspaceDirectory).mockResolvedValue("/tmp/from-dialog-workspaces");
+
+    render(
+      <MemoryRouter>
+        <CaseQueuePage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "选择工作目录" }));
+
+    await waitFor(() => expect(vi.mocked(pickWorkspaceDirectory)).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(screen.getByLabelText("工作目录")).toHaveValue("/tmp/from-dialog-workspaces"),
+    );
+  });
+
+  it("shows a Chinese hint when the native chooser is unavailable", async () => {
+    vi.mocked(listCases).mockResolvedValue({ items: [] });
+    vi.mocked(pickSampleFile).mockRejectedValue(new Error("desktop unavailable"));
+
+    render(
+      <MemoryRouter>
+        <CaseQueuePage />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "选择样本文件" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "当前环境暂时无法使用原生选择器，请直接填写路径。",
+    );
   });
 });
