@@ -87,6 +87,7 @@ def build_app(
     app.include_router(
         build_settings_router(
             registry_service=registry_service,
+            default_workspace_root=workspace_root,
         )
     )
     app.state.websocket_hub = hub

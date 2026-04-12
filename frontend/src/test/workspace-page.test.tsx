@@ -175,7 +175,7 @@ describe("CaseWorkspacePage", () => {
     expect(screen.getByRole("button", { name: "搜索方法" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "在 JADX 中打开" })).toBeInTheDocument();
 
-    expect(screen.getByText("com.example.alpha.net.ApiClient")).toBeInTheDocument();
+    expect(await screen.findByText("类名：com.example.alpha.net.ApiClient")).toBeInTheDocument();
     expect(screen.getByText("方法名：sendPayload")).toBeInTheDocument();
     expect(screen.getByText("参数：java.lang.String, java.util.Map")).toBeInTheDocument();
     expect(screen.getByText("签名：sendPayload(java.lang.String, java.util.Map)")).toBeInTheDocument();
@@ -183,7 +183,7 @@ describe("CaseWorkspacePage", () => {
     expect(screen.getByText("回连")).toBeInTheDocument();
     expect(screen.getByText("加密前")).toBeInTheDocument();
 
-    expect(screen.getByText("优先 Hook 回连方法")).toBeInTheDocument();
+    expect(await screen.findByText("优先 Hook 回连方法")).toBeInTheDocument();
     expect(screen.getByText("建议启用 AES 监控模板")).toBeInTheDocument();
     expect(screen.getByText((content) => content.includes("okhttp3_unpin.js"))).toBeInTheDocument();
     expect(screen.getByText((content) => content.includes("cipher_monitor.js"))).toBeInTheDocument();

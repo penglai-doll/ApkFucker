@@ -54,14 +54,8 @@ export async function getStartupSettings(): Promise<StartupSettings> {
 }
 
 export async function getApiHealth(): Promise<ApiHealth> {
-  const response = await fetch(apiUrl("/api/settings/startup"));
-  const settings = await parseJsonResponse<StartupSettings>(response, "本地后端健康检查失败");
-
-  return {
-    status: "ok",
-    service: "local-api",
-    last_workspace_root: settings.last_workspace_root,
-  };
+  const response = await fetch(apiUrl("/api/settings/health"));
+  return parseJsonResponse<ApiHealth>(response, "本地后端健康检查失败");
 }
 
 export async function getWorkspace(caseId: string): Promise<WorkspaceSummary> {

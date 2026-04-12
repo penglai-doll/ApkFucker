@@ -45,7 +45,7 @@ describe("App shell", () => {
     vi.mocked(getApiHealth).mockResolvedValue({
       status: "ok",
       service: "local-api",
-      last_workspace_root: "/tmp/workspaces",
+      default_workspace_root: "/tmp/workspaces",
     });
     vi.mocked(listCases).mockResolvedValue({ items: [] });
     vi.mocked(getWorkspaceDetail).mockResolvedValue({
@@ -79,7 +79,7 @@ describe("App shell", () => {
     expect(screen.getByRole("link", { name: "案件队列" })).toHaveAttribute("href", "/queue");
     expect(screen.getByRole("link", { name: "案件工作台" })).toHaveAttribute("href", "/workspace");
     expect(await screen.findByText("本地后端：已连接")).toBeInTheDocument();
-    expect(screen.getByText("最近工作目录：/tmp/workspaces")).toBeInTheDocument();
+    expect(screen.getByText("默认工作目录：/tmp/workspaces")).toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: "案件队列" })).toBeInTheDocument();
   });
 

@@ -120,8 +120,8 @@ export function AppFrame(): JSX.Element {
           {apiHealthStatus === "ready" ? "本地后端：已连接" : null}
           {apiHealthStatus === "unavailable" ? "本地后端：未就绪" : null}
         </p>
-        {apiHealthStatus === "ready" && apiHealth?.last_workspace_root ? (
-          <p>最近工作目录：{apiHealth.last_workspace_root}</p>
+        {apiHealthStatus === "ready" && apiHealth ? (
+          <p>默认工作目录：{apiHealth.default_workspace_root}</p>
         ) : null}
         <nav aria-label="工作台主导航">
           <NavLink to="/queue">案件队列</NavLink>

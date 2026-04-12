@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi import APIRouter
 
 from apk_hacker.application.services.workspace_registry_service import WorkspaceRegistryService
+from apk_hacker.interfaces.api_fastapi.schemas import HealthResponse
 from apk_hacker.interfaces.api_fastapi.schemas import StartupSettingsResponse
 
 
@@ -37,6 +38,7 @@ def _load_workspace_metadata(workspace_root: Path | None) -> tuple[str | None, s
 def build_settings_router(
     *,
     registry_service: WorkspaceRegistryService,
+    default_workspace_root: Path,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -51,6 +53,14 @@ def build_settings_router(
             last_workspace_root=str(last_workspace_root) if last_workspace_root is not None else None,
             case_id=case_id,
             title=title,
+        )
+
+    @router.get("/health", response_model=HealthResponse)
+    def get_health() -> HealthResponse:
+        return HealthResponse(
+            status="ok",
+            service="local-api",
+            default_workspace_root=str(default_workspace_root),
         )
 
     return router

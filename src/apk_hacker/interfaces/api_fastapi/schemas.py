@@ -140,3 +140,11 @@ class StartupSettingsResponse(BaseModel):
     last_workspace_root: str | None = None
     case_id: str | None = None
     title: str | None = None
+
+
+class HealthResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: str
+    service: str
+    default_workspace_root: str

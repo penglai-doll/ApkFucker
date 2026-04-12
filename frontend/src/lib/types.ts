@@ -102,7 +102,7 @@ export type StartupSettings = {
 export type ApiHealth = {
   status: string;
   service: string;
-  last_workspace_root: string | null;
+  default_workspace_root: string;
 };
 
 export type ExecutionStartResponse = {
