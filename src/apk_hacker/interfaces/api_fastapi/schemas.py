@@ -40,3 +40,26 @@ class WorkspaceSummary(BaseModel):
     case_id: str
     title: str
     view: str = "workspace"
+
+
+class ExecutionStartResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    case_id: str
+    status: str
+
+
+class ReportExportResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    case_id: str
+    report_path: str
+
+
+class StartupSettingsResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    launch_view: str
+    last_workspace_root: str | None = None
+    case_id: str | None = None
+    title: str | None = None

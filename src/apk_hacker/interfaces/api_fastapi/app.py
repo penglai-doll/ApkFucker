@@ -7,8 +7,12 @@ from fastapi import FastAPI, WebSocket
 from apk_hacker.application.services.workspace_registry_service import default_workspace_registry_path
 from apk_hacker.application.services.workspace_registry_service import WorkspaceRegistryService
 from apk_hacker.interfaces.api_fastapi.routes_cases import build_cases_router
+from apk_hacker.interfaces.api_fastapi.routes_execution import build_execution_router
+from apk_hacker.interfaces.api_fastapi.routes_reports import build_reports_router
+from apk_hacker.interfaces.api_fastapi.routes_settings import build_settings_router
 from apk_hacker.interfaces.api_fastapi.routes_workspace import build_workspace_router
 from apk_hacker.interfaces.api_fastapi.websocket_hub import WebSocketHub
+
 
 def build_app(
     *,
@@ -39,6 +43,26 @@ def build_app(
             default_workspace_root=workspace_root,
         )
     )
+    app.include_router(
+        build_execution_router(
+            hub=hub,
+            registry_service=registry_service,
+            default_workspace_root=workspace_root,
+        )
+    )
+    app.include_router(
+        build_reports_router(
+            registry_service=registry_service,
+            default_workspace_root=workspace_root,
+        )
+    )
+    app.include_router(
+        build_settings_router(
+            registry_service=registry_service,
+        )
+    )
+    app.state.websocket_hub = hub
+    app.state.workspace_registry_service = registry_service
 
     @app.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket) -> None:
