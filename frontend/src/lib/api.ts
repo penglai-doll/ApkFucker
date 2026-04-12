@@ -3,8 +3,12 @@ import type {
   ImportCaseRequest,
   ImportedCaseResponse,
   ExecutionStartResponse,
+  OpenJadxResponse,
   ReportExportResponse,
   StartupSettings,
+  WorkspaceDetailResponse,
+  WorkspaceMethodsResponse,
+  WorkspaceRecommendationsResponse,
   WorkspaceSummary,
 } from "./types";
 
@@ -51,6 +55,45 @@ export async function getStartupSettings(): Promise<StartupSettings> {
 export async function getWorkspace(caseId: string): Promise<WorkspaceSummary> {
   const response = await fetch(apiUrl(`/api/cases/${caseId}/workspace`));
   return parseJsonResponse<WorkspaceSummary>(response, "加载案件工作台失败");
+}
+
+export async function getWorkspaceDetail(caseId: string): Promise<WorkspaceDetailResponse> {
+  const response = await fetch(apiUrl(`/api/cases/${encodeURIComponent(caseId)}/workspace/detail`));
+  return parseJsonResponse<WorkspaceDetailResponse>(response, "加载工作区简报失败");
+}
+
+export async function getWorkspaceMethods(
+  caseId: string,
+  options: { query?: string; limit?: number } = {},
+): Promise<WorkspaceMethodsResponse> {
+  const searchParams = new URLSearchParams();
+  searchParams.set("query", options.query ?? "");
+  searchParams.set("limit", String(options.limit ?? 12));
+
+  const response = await fetch(
+    apiUrl(`/api/cases/${encodeURIComponent(caseId)}/workspace/methods?${searchParams.toString()}`),
+  );
+  return parseJsonResponse<WorkspaceMethodsResponse>(response, "加载方法索引失败");
+}
+
+export async function getWorkspaceRecommendations(
+  caseId: string,
+  options: { limit?: number } = {},
+): Promise<WorkspaceRecommendationsResponse> {
+  const searchParams = new URLSearchParams();
+  searchParams.set("limit", String(options.limit ?? 6));
+
+  const response = await fetch(
+    apiUrl(`/api/cases/${encodeURIComponent(caseId)}/workspace/recommendations?${searchParams.toString()}`),
+  );
+  return parseJsonResponse<WorkspaceRecommendationsResponse>(response, "加载离线推荐失败");
+}
+
+export async function openWorkspaceInJadx(caseId: string): Promise<OpenJadxResponse> {
+  const response = await fetch(apiUrl(`/api/cases/${encodeURIComponent(caseId)}/actions/open-jadx`), {
+    method: "POST",
+  });
+  return parseJsonResponse<OpenJadxResponse>(response, "打开 JADX 失败");
 }
 
 export async function startExecution(caseId: string): Promise<ExecutionStartResponse> {

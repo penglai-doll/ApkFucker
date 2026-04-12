@@ -1,55 +1,89 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 
-import { EvidencePanel } from "../components/workspace/EvidencePanel";
-import { ExecutionConsolePanel } from "../components/workspace/ExecutionConsolePanel";
 import { HookStudioPanel } from "../components/workspace/HookStudioPanel";
-import { ReportsPanel } from "../components/workspace/ReportsPanel";
 import { StaticBriefPanel } from "../components/workspace/StaticBriefPanel";
-import { exportReport, getWorkspace, startExecution } from "../lib/api";
-import type { ExecutionStartResponse, ReportExportResponse, WorkspaceEvent, WorkspaceSummary } from "../lib/types";
-import { connectWorkspaceEvents } from "../lib/ws";
+import {
+  getWorkspaceDetail,
+  getWorkspaceMethods,
+  getWorkspaceRecommendations,
+  openWorkspaceInJadx,
+} from "../lib/api";
+import type {
+  HookRecommendationSummary,
+  WorkspaceDetailResponse,
+  WorkspaceMethodSummary,
+} from "../lib/types";
+
+const METHOD_LIMIT = 12;
+const RECOMMENDATION_LIMIT = 6;
 
 export function CaseWorkspacePage(): JSX.Element {
   const { caseId } = useParams<{ caseId: string }>();
-  const [workspace, setWorkspace] = useState<WorkspaceSummary | null>(null);
-  const [isLoading, setIsLoading] = useState(Boolean(caseId));
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [events, setEvents] = useState<WorkspaceEvent[]>([]);
-  const [executionResponse, setExecutionResponse] = useState<ExecutionStartResponse | null>(null);
-  const [reportResponse, setReportResponse] = useState<ReportExportResponse | null>(null);
-  const [isStartingExecution, setIsStartingExecution] = useState(false);
-  const [isExportingReport, setIsExportingReport] = useState(false);
+  const [detail, setDetail] = useState<WorkspaceDetailResponse | null>(null);
+  const [detailError, setDetailError] = useState<string | null>(null);
+  const [isLoadingDetail, setIsLoadingDetail] = useState(Boolean(caseId));
+  const [searchValue, setSearchValue] = useState("");
+  const [methodQuery, setMethodQuery] = useState("");
+  const [methods, setMethods] = useState<WorkspaceMethodSummary[]>([]);
+  const [methodTotal, setMethodTotal] = useState(0);
+  const [isLoadingMethods, setIsLoadingMethods] = useState(false);
+  const [methodsError, setMethodsError] = useState<string | null>(null);
+  const [recommendations, setRecommendations] = useState<HookRecommendationSummary[]>([]);
+  const [isLoadingRecommendations, setIsLoadingRecommendations] = useState(false);
+  const [recommendationsError, setRecommendationsError] = useState<string | null>(null);
+  const [isOpeningInJadx, setIsOpeningInJadx] = useState(false);
+  const [openJadxMessage, setOpenJadxMessage] = useState<string | null>(null);
+  const [openJadxError, setOpenJadxError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!caseId) {
-      setWorkspace(null);
-      setErrorMessage(null);
-      setIsLoading(false);
+      setDetail(null);
+      setDetailError(null);
+      setIsLoadingDetail(false);
+      setSearchValue("");
+      setMethodQuery("");
+      setMethods([]);
+      setMethodTotal(0);
+      setMethodsError(null);
+      setRecommendations([]);
+      setRecommendationsError(null);
+      setOpenJadxMessage(null);
+      setOpenJadxError(null);
       return;
     }
 
     let active = true;
-    setIsLoading(true);
+    setIsLoadingDetail(true);
+    setDetailError(null);
+    setDetail(null);
+    setSearchValue("");
+    setMethodQuery("");
+    setMethods([]);
+    setMethodTotal(0);
+    setMethodsError(null);
+    setRecommendations([]);
+    setRecommendationsError(null);
+    setOpenJadxMessage(null);
+    setOpenJadxError(null);
 
-    void getWorkspace(caseId)
+    void getWorkspaceDetail(caseId)
       .then((response) => {
         if (!active) {
           return;
         }
-        setWorkspace(response);
-        setErrorMessage(null);
+        setDetail(response);
       })
       .catch(() => {
         if (!active) {
           return;
         }
-        setWorkspace(null);
-        setErrorMessage("案件工作台暂时不可用。");
+        setDetail(null);
+        setDetailError("案件工作台暂时不可用。");
       })
       .finally(() => {
         if (active) {
-          setIsLoading(false);
+          setIsLoadingDetail(false);
         }
       });
 
@@ -59,99 +93,133 @@ export function CaseWorkspacePage(): JSX.Element {
   }, [caseId]);
 
   useEffect(() => {
-    if (!caseId) {
-      setEvents([]);
+    if (!caseId || !detail) {
       return;
     }
 
-    const connection = connectWorkspaceEvents({
-      caseId,
-      onEvent: (event) => {
-        setEvents((current) => [...current, event].slice(-20));
-      },
-      onError: () => {
-        setEvents((current) => [
-          ...current,
-          {
-            type: "workspace.events.error",
-            case_id: caseId,
-          },
-        ]);
-      },
-    });
+    let active = true;
+    setIsLoadingRecommendations(true);
+    setRecommendationsError(null);
+
+    void getWorkspaceRecommendations(caseId, { limit: RECOMMENDATION_LIMIT })
+      .then((response) => {
+        if (!active) {
+          return;
+        }
+        setRecommendations(response.items);
+      })
+      .catch(() => {
+        if (!active) {
+          return;
+        }
+        setRecommendations([]);
+        setRecommendationsError("离线推荐暂时不可用，请稍后重试。");
+      })
+      .finally(() => {
+        if (active) {
+          setIsLoadingRecommendations(false);
+        }
+      });
 
     return () => {
-      connection.close();
+      active = false;
     };
-  }, [caseId]);
+  }, [caseId, detail]);
 
-  async function handleStartExecution(): Promise<void> {
-    if (!caseId) {
+  useEffect(() => {
+    if (!caseId || !detail || !detail.has_method_index) {
+      setMethods([]);
+      setMethodTotal(0);
+      setMethodsError(null);
+      setIsLoadingMethods(false);
       return;
     }
 
-    setIsStartingExecution(true);
-    try {
-      const response = await startExecution(caseId);
-      setExecutionResponse(response);
-    } catch {
-      setExecutionResponse({
-        case_id: caseId,
-        status: "error",
-      });
-    } finally {
-      setIsStartingExecution(false);
-    }
-  }
+    let active = true;
+    setIsLoadingMethods(true);
+    setMethodsError(null);
 
-  async function handleExportReport(): Promise<void> {
-    if (!caseId) {
+    void getWorkspaceMethods(caseId, { query: methodQuery.trim(), limit: METHOD_LIMIT })
+      .then((response) => {
+        if (!active) {
+          return;
+        }
+        setMethods(response.items);
+        setMethodTotal(response.total);
+      })
+      .catch(() => {
+        if (!active) {
+          return;
+        }
+        setMethods([]);
+        setMethodTotal(0);
+        setMethodsError("方法索引暂时不可用，请稍后重试。");
+      })
+      .finally(() => {
+        if (active) {
+          setIsLoadingMethods(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [caseId, detail, methodQuery]);
+
+  async function handleOpenInJadx(): Promise<void> {
+    if (!caseId || !detail?.can_open_in_jadx) {
       return;
     }
 
-    setIsExportingReport(true);
+    setIsOpeningInJadx(true);
+    setOpenJadxMessage(null);
+    setOpenJadxError(null);
+
     try {
-      const response = await exportReport(caseId);
-      setReportResponse(response);
+      await openWorkspaceInJadx(caseId);
+      setOpenJadxMessage("已请求打开 JADX。");
     } catch {
-      setReportResponse({
-        case_id: caseId,
-        report_path: "报告导出失败，请稍后重试。",
-      });
+      setOpenJadxError("打开 JADX 失败，请检查本机配置。");
     } finally {
-      setIsExportingReport(false);
+      setIsOpeningInJadx(false);
     }
   }
 
-  const latestEvent = events.length > 0 ? events[events.length - 1] : null;
-  const executionStatusText = executionResponse?.status ?? latestEvent?.status ?? "idle";
+  function handleMethodSearch(): void {
+    if (!detail?.has_method_index) {
+      return;
+    }
+
+    setMethodQuery(searchValue.trim());
+  }
 
   return (
     <section aria-labelledby="case-workspace-title">
       <h2 id="case-workspace-title">案件工作台</h2>
-      <p>查看静态简报与 Hook Studio，继续串起案件工作台的第一步数据流。</p>
+      <p>浏览静态简报、方法索引和离线 Hook 推荐，必要时可以直接打开本地 JADX。</p>
       {caseId ? <p>案件编号：{caseId}</p> : <p>请先从案件队列选择一个案件进入工作台。</p>}
-      {isLoading ? <p>正在加载案件工作台...</p> : null}
-      {errorMessage ? <p role="alert">{errorMessage}</p> : null}
-      {!isLoading && !errorMessage && workspace ? <p>当前案件：{workspace.title}</p> : null}
-      <StaticBriefPanel />
-      <HookStudioPanel />
-      <ExecutionConsolePanel
-        events={events}
-        isStarting={isStartingExecution}
-        onStart={() => {
-          void handleStartExecution();
+      {isLoadingDetail ? <p>正在加载工作区数据...</p> : null}
+      {!isLoadingDetail && detail ? <p>当前案件：{detail.title}</p> : null}
+      <StaticBriefPanel detail={detail} errorMessage={detailError} isLoading={isLoadingDetail} />
+      <HookStudioPanel
+        canOpenInJadx={Boolean(detail?.can_open_in_jadx)}
+        hasMethodIndex={Boolean(detail?.has_method_index)}
+        isLoadingMethods={isLoadingMethods}
+        isLoadingRecommendations={isLoadingRecommendations}
+        isOpeningInJadx={isOpeningInJadx}
+        methodTotal={methodTotal}
+        methods={methods}
+        openJadxError={openJadxError}
+        openJadxMessage={openJadxMessage}
+        onMethodQueryChange={setSearchValue}
+        onMethodSearch={handleMethodSearch}
+        onOpenInJadx={() => {
+          void handleOpenInJadx();
         }}
-        startDisabled={!caseId || isStartingExecution}
-        statusText={executionStatusText}
-      />
-      <EvidencePanel caseId={caseId ?? null} latestEvent={latestEvent} workspace={workspace} />
-      <ReportsPanel
-        isExporting={isExportingReport}
-        onExport={() => {
-          void handleExportReport();
-        }}
-        reportPath={reportResponse?.report_path ?? null}
+        recommendations={recommendations}
+        recommendationsError={recommendationsError}
+        searchError={methodsError}
+        searchValue={searchValue}
       />
     </section>
   );

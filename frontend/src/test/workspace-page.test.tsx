@@ -5,43 +5,106 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 import { CaseWorkspacePage } from "../pages/CaseWorkspacePage";
-import { exportReport, getWorkspace, startExecution } from "../lib/api";
-import { connectWorkspaceEvents } from "../lib/ws";
+import {
+  getWorkspaceDetail,
+  getWorkspaceMethods,
+  getWorkspaceRecommendations,
+  openWorkspaceInJadx,
+} from "../lib/api";
 
 vi.mock("../lib/api", () => ({
-  exportReport: vi.fn(),
-  getWorkspace: vi.fn(),
-  startExecution: vi.fn(),
-}));
-
-vi.mock("../lib/ws", () => ({
-  connectWorkspaceEvents: vi.fn(),
+  getWorkspaceDetail: vi.fn(),
+  getWorkspaceMethods: vi.fn(),
+  getWorkspaceRecommendations: vi.fn(),
+  openWorkspaceInJadx: vi.fn(),
 }));
 
 describe("CaseWorkspacePage", () => {
   beforeEach(() => {
-    vi.mocked(exportReport).mockReset();
-    vi.mocked(getWorkspace).mockReset();
-    vi.mocked(startExecution).mockReset();
-    vi.mocked(connectWorkspaceEvents).mockReset();
-    vi.mocked(connectWorkspaceEvents).mockImplementation(({ onEvent }) => {
-      onEvent({
-        type: "execution.started",
-        case_id: "case-001",
-        status: "started",
-        payload: { source: "test" },
-      });
-      return {
-        close: vi.fn(),
-      };
-    });
+    vi.mocked(getWorkspaceDetail).mockReset();
+    vi.mocked(getWorkspaceMethods).mockReset();
+    vi.mocked(getWorkspaceRecommendations).mockReset();
+    vi.mocked(openWorkspaceInJadx).mockReset();
   });
 
-  it("loads workspace details by route param and renders all workspace panels", async () => {
-    vi.mocked(getWorkspace).mockResolvedValue({
+  it("loads the workspace inspection data and renders the Chinese workspace browser", async () => {
+    vi.mocked(getWorkspaceDetail).mockResolvedValue({
       case_id: "case-001",
       title: "Alpha 样本",
-      view: "workspace",
+      package_name: "com.example.alpha",
+      technical_tags: ["okhttp3", "uniapp"],
+      dangerous_permissions: ["READ_SMS", "CAMERA"],
+      callback_endpoints: ["https://c2.example.com/api"],
+      callback_clues: ["动态拼接 URL", "硬编码鉴权头"],
+      crypto_signals: ["AES/CBC", "MD5"],
+      packer_hints: ["腾讯乐固"],
+      limitations: ["样本缺少完整 method index"],
+      custom_scripts: [
+        {
+          script_id: "script-1",
+          name: "日志脱敏脚本",
+          script_path: "/workspace/case-001/scripts/log-mask.js",
+        },
+      ],
+      can_open_in_jadx: true,
+      has_method_index: true,
+      method_count: 2,
+    });
+    vi.mocked(getWorkspaceMethods).mockResolvedValue({
+      items: [
+        {
+          class_name: "com.example.alpha.net.ApiClient",
+          method_name: "sendPayload",
+          parameter_types: ["java.lang.String", "java.util.Map"],
+          return_type: "void",
+          is_constructor: false,
+          overload_count: 2,
+          source_path: "com/example/alpha/net/ApiClient.java",
+          line_hint: 142,
+          tags: ["回连", "加密前"],
+          evidence: ["命中 callback clue"],
+        },
+      ],
+      total: 1,
+    });
+    vi.mocked(getWorkspaceRecommendations).mockResolvedValue({
+      items: [
+        {
+          recommendation_id: "rec-1",
+          kind: "method",
+          title: "优先 Hook 回连方法",
+          reason: "命中回连线索和网络类标签",
+          score: 92,
+          matched_terms: ["回连", "okhttp3"],
+          method: {
+            class_name: "com.example.alpha.net.ApiClient",
+            method_name: "sendPayload",
+            parameter_types: ["java.lang.String", "java.util.Map"],
+            return_type: "void",
+            is_constructor: false,
+            overload_count: 2,
+            source_path: "com/example/alpha/net/ApiClient.java",
+            line_hint: 142,
+            tags: ["回连", "加密前"],
+            evidence: ["命中 callback clue"],
+          },
+          template_id: "template-okhttp",
+          template_name: "okhttp3_unpin.js",
+          plugin_id: "network",
+        },
+        {
+          recommendation_id: "rec-2",
+          kind: "template",
+          title: "建议启用 AES 监控模板",
+          reason: "检测到 AES/CBC 信号",
+          score: 80,
+          matched_terms: ["AES", "CBC"],
+          method: null,
+          template_id: "template-cipher",
+          template_name: "cipher_monitor.js",
+          plugin_id: null,
+        },
+      ],
     });
 
     render(
@@ -52,18 +115,127 @@ describe("CaseWorkspacePage", () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByText("当前案件：Alpha 样本")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "静态简报" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Hook Studio" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "执行控制台" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "证据中心" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "报告与导出" })).toBeInTheDocument();
-    expect(screen.getByText("execution.started")).toBeInTheDocument();
-    expect(vi.mocked(connectWorkspaceEvents)).toHaveBeenCalled();
+    expect(await screen.findByText("案件工作台")).toBeInTheDocument();
+    expect(await screen.findByText((content) => content.includes("Alpha 样本"))).toBeInTheDocument();
+    expect(screen.getByText("com.example.alpha")).toBeInTheDocument();
+    expect(screen.getByText("技术标签")).toBeInTheDocument();
+    expect(screen.getByText("危险权限")).toBeInTheDocument();
+    expect(screen.getByText("回连端点")).toBeInTheDocument();
+    expect(screen.getByText("回连线索")).toBeInTheDocument();
+    expect(screen.getByText("加密信号")).toBeInTheDocument();
+    expect(screen.getByText("加固线索")).toBeInTheDocument();
+    expect(screen.getByText("限制说明")).toBeInTheDocument();
+    expect(screen.getByText("自定义脚本")).toBeInTheDocument();
+    expect(screen.getByText("方法索引状态")).toBeInTheDocument();
+    expect(screen.getByText("已建立")).toBeInTheDocument();
+
+    expect(screen.getByRole("textbox", { name: "搜索方法" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "搜索方法" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open in JADX" })).toBeInTheDocument();
+
+    expect(screen.getByText("com.example.alpha.net.ApiClient")).toBeInTheDocument();
+    expect(screen.getByText("方法名：sendPayload")).toBeInTheDocument();
+    expect(screen.getByText("参数：java.lang.String, java.util.Map")).toBeInTheDocument();
+    expect(screen.getByText("签名：sendPayload(java.lang.String, java.util.Map)")).toBeInTheDocument();
+    expect(screen.getByText("返回类型：void")).toBeInTheDocument();
+    expect(screen.getByText("回连")).toBeInTheDocument();
+    expect(screen.getByText("加密前")).toBeInTheDocument();
+
+    expect(screen.getByText("优先 Hook 回连方法")).toBeInTheDocument();
+    expect(screen.getByText("建议启用 AES 监控模板")).toBeInTheDocument();
+    expect(screen.getByText((content) => content.includes("okhttp3_unpin.js"))).toBeInTheDocument();
+    expect(screen.getByText((content) => content.includes("cipher_monitor.js"))).toBeInTheDocument();
+
+    expect(vi.mocked(getWorkspaceDetail)).toHaveBeenCalledWith("case-001");
+    expect(vi.mocked(getWorkspaceMethods)).toHaveBeenCalledWith("case-001", { query: "", limit: 12 });
+    expect(vi.mocked(getWorkspaceRecommendations)).toHaveBeenCalledWith("case-001", { limit: 6 });
   });
 
-  it("shows a Chinese error state when workspace loading fails", async () => {
-    vi.mocked(getWorkspace).mockRejectedValue(new Error("boom"));
+  it("shows a Chinese fallback when the workspace has no method index", async () => {
+    vi.mocked(getWorkspaceDetail).mockResolvedValue({
+      case_id: "case-002",
+      title: "Beta 样本",
+      package_name: "com.example.beta",
+      technical_tags: [],
+      dangerous_permissions: [],
+      callback_endpoints: [],
+      callback_clues: [],
+      crypto_signals: [],
+      packer_hints: [],
+      limitations: ["未生成 method index，暂时无法浏览方法列表。"],
+      custom_scripts: [],
+      can_open_in_jadx: false,
+      has_method_index: false,
+      method_count: 0,
+    });
+    vi.mocked(getWorkspaceMethods).mockResolvedValue({
+      items: [],
+      total: 0,
+    });
+    vi.mocked(getWorkspaceRecommendations).mockResolvedValue({
+      items: [],
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/workspace/case-002"]}>
+        <Routes>
+          <Route path="/workspace/:caseId" element={<CaseWorkspacePage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText((content) => content.includes("Beta 样本"))).toBeInTheDocument();
+    expect(screen.getByText("当前没有可用的方法索引，无法浏览方法列表。")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open in JADX" })).toBeDisabled();
+  });
+
+  it("opens JADX from the hook studio and shows the Chinese success state", async () => {
+    vi.mocked(getWorkspaceDetail).mockResolvedValue({
+      case_id: "case-003",
+      title: "Gamma 样本",
+      package_name: "com.example.gamma",
+      technical_tags: [],
+      dangerous_permissions: [],
+      callback_endpoints: [],
+      callback_clues: [],
+      crypto_signals: [],
+      packer_hints: [],
+      limitations: [],
+      custom_scripts: [],
+      can_open_in_jadx: true,
+      has_method_index: true,
+      method_count: 0,
+    });
+    vi.mocked(getWorkspaceMethods).mockResolvedValue({
+      items: [],
+      total: 0,
+    });
+    vi.mocked(getWorkspaceRecommendations).mockResolvedValue({
+      items: [],
+    });
+    vi.mocked(openWorkspaceInJadx).mockResolvedValue({
+      case_id: "case-003",
+      status: "opened",
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/workspace/case-003"]}>
+        <Routes>
+          <Route path="/workspace/:caseId" element={<CaseWorkspacePage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Open in JADX" }));
+
+    await waitFor(() => {
+      expect(vi.mocked(openWorkspaceInJadx)).toHaveBeenCalledWith("case-003");
+    });
+    expect(await screen.findByText("已请求打开 JADX。")).toBeInTheDocument();
+  });
+
+  it("shows a Chinese error state when workspace inspection fails", async () => {
+    vi.mocked(getWorkspaceDetail).mockRejectedValue(new Error("boom"));
 
     render(
       <MemoryRouter initialEntries={["/workspace/case-missing"]}>
@@ -74,61 +246,5 @@ describe("CaseWorkspacePage", () => {
     );
 
     expect(await screen.findByRole("alert")).toHaveTextContent("案件工作台暂时不可用。");
-  });
-
-  it("starts an execution from the execution console", async () => {
-    vi.mocked(getWorkspace).mockResolvedValue({
-      case_id: "case-001",
-      title: "Alpha 样本",
-      view: "workspace",
-    });
-    vi.mocked(startExecution).mockResolvedValue({
-      case_id: "case-001",
-      status: "started",
-    });
-
-    render(
-      <MemoryRouter initialEntries={["/workspace/case-001"]}>
-        <Routes>
-          <Route path="/workspace/:caseId" element={<CaseWorkspacePage />} />
-        </Routes>
-      </MemoryRouter>,
-    );
-
-    fireEvent.click(await screen.findByRole("button", { name: "启动执行" }));
-
-    await waitFor(() => {
-      expect(vi.mocked(startExecution)).toHaveBeenCalledWith("case-001");
-    });
-    expect(await screen.findByText("当前状态：started")).toBeInTheDocument();
-  });
-
-  it("exports a report from the reports panel", async () => {
-    vi.mocked(getWorkspace).mockResolvedValue({
-      case_id: "case-001",
-      title: "Alpha 样本",
-      view: "workspace",
-    });
-    vi.mocked(exportReport).mockResolvedValue({
-      case_id: "case-001",
-      report_path: "/tmp/workspaces/case-001/reports/case-001-report.md",
-    });
-
-    render(
-      <MemoryRouter initialEntries={["/workspace/case-001"]}>
-        <Routes>
-          <Route path="/workspace/:caseId" element={<CaseWorkspacePage />} />
-        </Routes>
-      </MemoryRouter>,
-    );
-
-    fireEvent.click(await screen.findByRole("button", { name: "导出报告" }));
-
-    await waitFor(() => {
-      expect(vi.mocked(exportReport)).toHaveBeenCalledWith("case-001");
-    });
-    expect(
-      await screen.findByText((content) => content.includes("/tmp/workspaces/case-001/reports/case-001-report.md")),
-    ).toBeInTheDocument();
   });
 });
