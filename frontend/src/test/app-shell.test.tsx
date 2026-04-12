@@ -1,11 +1,23 @@
 import "@testing-library/jest-dom/vitest";
 
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "../App";
+import { getWorkspace, listCases } from "../lib/api";
+
+vi.mock("../lib/api", () => ({
+  getWorkspace: vi.fn(),
+  listCases: vi.fn(),
+}));
 
 describe("App shell", () => {
+  beforeEach(() => {
+    vi.mocked(listCases).mockReset();
+    vi.mocked(getWorkspace).mockReset();
+    vi.mocked(listCases).mockResolvedValue({ items: [] });
+  });
+
   it("renders the Chinese dual-mode app frame", async () => {
     window.history.replaceState({}, "", "/");
     render(<App />);
@@ -32,5 +44,32 @@ describe("App shell", () => {
     expect(screen.getByText("APKHacker")).toBeInTheDocument();
     expect(screen.getByLabelText("当前模式")).toHaveTextContent("案件队列");
     expect(screen.queryByText("Unexpected Application Error!")).not.toBeInTheDocument();
+  });
+
+  it("navigates from queue to a concrete workspace and loads workspace details", async () => {
+    vi.mocked(listCases).mockResolvedValue({
+      items: [
+        {
+          case_id: "case-001",
+          title: "Alpha 样本",
+          workspace_root: "/tmp/workspaces/case-001",
+        },
+      ],
+    });
+    vi.mocked(getWorkspace).mockResolvedValue({
+      case_id: "case-001",
+      title: "Alpha 样本",
+      view: "workspace",
+    });
+
+    window.history.replaceState({}, "", "/queue");
+    render(<App />);
+
+    const link = await screen.findByRole("link", { name: "进入 Alpha 样本 工作台" });
+    fireEvent.click(link);
+
+    expect(await screen.findByText("当前案件：Alpha 样本")).toBeInTheDocument();
+    expect(screen.getByLabelText("当前模式")).toHaveTextContent("案件工作台");
+    expect(vi.mocked(getWorkspace)).toHaveBeenCalledWith("case-001");
   });
 });

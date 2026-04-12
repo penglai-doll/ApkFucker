@@ -7,6 +7,7 @@ from typing import Sequence
 from PyQt6.QtWidgets import QApplication
 
 from apk_hacker.application.services.execution_runtime import build_execution_backend_env
+from apk_hacker.application.services.workspace_registry_service import default_workspace_data_root
 from apk_hacker.infrastructure.execution.real_backend import RealExecutionBackend
 from apk_hacker.interfaces.gui_pyqt.main_window import MainWindow
 from apk_hacker.interfaces.gui_pyqt.viewmodels import WorkbenchController
@@ -50,7 +51,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def build_window(args: argparse.Namespace) -> MainWindow:
     execution_backend_env = _build_execution_backend_env(args)
     repo_root = Path(__file__).resolve().parents[4]
-    resolved_db_root = args.db_root or (repo_root / "cache" / "gui")
+    resolved_db_root = args.db_root or default_workspace_data_root(repo_root)
     resolved_scripts_root = args.scripts_root or (
         repo_root / "user_data" / "frida_plugins" / "custom"
     )

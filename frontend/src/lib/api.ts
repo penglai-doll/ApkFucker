@@ -1,5 +1,11 @@
 import type { CaseListResponse, WorkspaceSummary } from "./types";
 
+const apiBaseUrl = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ?? "";
+
+function apiUrl(path: string): string {
+  return apiBaseUrl ? `${apiBaseUrl}${path}` : path;
+}
+
 async function parseJsonResponse<T>(response: Response, errorMessage: string): Promise<T> {
   if (!response.ok) {
     throw new Error(errorMessage);
@@ -8,11 +14,11 @@ async function parseJsonResponse<T>(response: Response, errorMessage: string): P
 }
 
 export async function listCases(): Promise<CaseListResponse> {
-  const response = await fetch("/api/cases");
+  const response = await fetch(apiUrl("/api/cases"));
   return parseJsonResponse<CaseListResponse>(response, "加载案件列表失败");
 }
 
 export async function getWorkspace(caseId: string): Promise<WorkspaceSummary> {
-  const response = await fetch(`/api/cases/${caseId}/workspace`);
+  const response = await fetch(apiUrl(`/api/cases/${caseId}/workspace`));
   return parseJsonResponse<WorkspaceSummary>(response, "加载案件工作台失败");
 }

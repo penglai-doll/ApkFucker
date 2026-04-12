@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import APIRouter
+from fastapi import HTTPException
 from fastapi import status
 
 from apk_hacker.application.services.case_queue_service import CaseQueueService
@@ -62,9 +63,13 @@ def build_cases_router(
 
     @router.post("/import", response_model=ImportedCaseResponse, status_code=status.HTTP_201_CREATED)
     def import_case(payload: ImportCaseRequest) -> ImportedCaseResponse:
+        sample_path = Path(payload.sample_path).expanduser()
+        if not sample_path.is_file():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sample file not found")
+
         target_root = Path(payload.workspace_root).expanduser()
         record = create_workspace_service.create_workspace(
-            sample_path=Path(payload.sample_path).expanduser(),
+            sample_path=sample_path,
             workspace_root=target_root,
             title=payload.title,
         )

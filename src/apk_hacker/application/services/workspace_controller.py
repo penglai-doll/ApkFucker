@@ -71,6 +71,7 @@ class WorkspaceController:
         )
         case_queue = self._case_queue_service.list_cases(workspace_root)
         custom_scripts = self._custom_script_service.discover_records()
+        self._workspace_registry_service.remember_workspace_root(workspace_root)
         self._workspace_registry_service.set_last_opened_workspace(workspace.workspace_root)
         summary_text = self._report_export_service.build_workspace_summary(
             workspace_title=workspace.title,

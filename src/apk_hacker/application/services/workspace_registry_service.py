@@ -5,6 +5,15 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+def default_workspace_data_root(base_root: Path | None = None) -> Path:
+    root = base_root or Path.cwd()
+    return root / "cache" / "gui"
+
+
+def default_workspace_registry_path(base_root: Path | None = None) -> Path:
+    return default_workspace_data_root(base_root) / "workspace-registry.json"
+
+
 @dataclass(frozen=True, slots=True)
 class WorkspaceRegistry:
     default_workspace_root: Path | None = None
