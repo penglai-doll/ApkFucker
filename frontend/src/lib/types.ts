@@ -10,6 +10,19 @@ export type CaseListResponse = {
   items: CaseQueueItem[];
 };
 
+export type ImportCaseRequest = {
+  sample_path: string;
+  workspace_root: string;
+  title?: string | null;
+};
+
+export type ImportedCaseResponse = {
+  case_id: string;
+  title: string;
+  workspace_root: string;
+  sample_path: string;
+};
+
 export type WorkspaceSummary = {
   case_id: string;
   title: string;

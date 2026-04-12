@@ -1,5 +1,7 @@
 import type {
   CaseListResponse,
+  ImportCaseRequest,
+  ImportedCaseResponse,
   ExecutionStartResponse,
   ReportExportResponse,
   StartupSettings,
@@ -27,6 +29,18 @@ async function parseJsonResponse<T>(response: Response, errorMessage: string): P
 export async function listCases(): Promise<CaseListResponse> {
   const response = await fetch(apiUrl("/api/cases"));
   return parseJsonResponse<CaseListResponse>(response, "加载案件列表失败");
+}
+
+export async function importCase(payload: ImportCaseRequest): Promise<ImportedCaseResponse> {
+  const response = await fetch(apiUrl("/api/cases/import"), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  return parseJsonResponse<ImportedCaseResponse>(response, "导入案件失败");
 }
 
 export async function getStartupSettings(): Promise<StartupSettings> {
