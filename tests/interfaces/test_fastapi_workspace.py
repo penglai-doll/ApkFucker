@@ -4,7 +4,23 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from apk_hacker.application.services.case_queue_service import CaseQueueService
+from apk_hacker.application.services.custom_script_service import CustomScriptService
+from apk_hacker.application.services.job_service import JobService
+from apk_hacker.application.services.report_export_service import ReportExportService
+from apk_hacker.application.services.workspace_controller import WorkspaceController
+from apk_hacker.application.services.workspace_registry_service import default_workspace_registry_path
+from apk_hacker.application.services.workspace_service import WorkspaceService
+from apk_hacker.static_engine.analyzer import StaticArtifacts
 from apk_hacker.interfaces.api_fastapi.app import build_app
+
+
+class _FakeStaticAnalyzer:
+    def __init__(self, artifacts: StaticArtifacts) -> None:
+        self.artifacts = artifacts
+
+    def analyze(self, target_path: Path, output_dir: Path | None = None, mode: str = "auto") -> StaticArtifacts:
+        return self.artifacts
 
 
 def test_import_case_creates_workspace(tmp_path: Path) -> None:
@@ -28,6 +44,23 @@ def test_import_case_creates_workspace(tmp_path: Path) -> None:
     assert payload["case_id"].startswith("case-")
     assert Path(payload["workspace_root"]).is_dir()
     assert Path(payload["sample_path"]).is_file()
+
+
+def test_import_case_returns_404_for_missing_sample(tmp_path: Path) -> None:
+    workspace_root = tmp_path / "workspaces"
+    client = TestClient(build_app(default_workspace_root=workspace_root))
+
+    response = client.post(
+        "/api/cases/import",
+        json={
+            "sample_path": str(tmp_path / "missing.apk"),
+            "workspace_root": str(workspace_root),
+            "title": "缺失样本",
+        },
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Sample file not found"
 
 
 def test_get_workspace_returns_minimal_workspace_view(tmp_path: Path) -> None:
@@ -81,3 +114,88 @@ def test_workspace_lookup_survives_app_restart_for_override_root(tmp_path: Path)
 
     assert workspace_response.status_code == 200
     assert workspace_response.json()["title"] == "切换根目录"
+
+
+def test_workspace_lookup_uses_workspace_metadata_case_id(tmp_path: Path) -> None:
+    workspace_root = tmp_path / "workspaces"
+    mismatched_case_root = workspace_root / "folder-name"
+    mismatched_case_root.mkdir(parents=True)
+    (mismatched_case_root / "workspace.json").write_text(
+        """
+        {
+          "case_id": "case-real",
+          "title": "真实案件",
+          "workspace_version": 1,
+          "created_at": "2026-04-10T00:00:00Z",
+          "updated_at": "2026-04-10T00:00:00Z",
+          "sample_filename": "original.apk"
+        }
+        """.strip(),
+        encoding="utf-8",
+    )
+    client = TestClient(build_app(default_workspace_root=workspace_root))
+
+    response = client.get("/api/cases/case-real/workspace")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "case_id": "case-real",
+        "title": "真实案件",
+        "view": "workspace",
+    }
+
+
+def test_api_sees_controller_initialized_workspace_via_default_registry_path(tmp_path: Path) -> None:
+    fixture_root = Path("tests/fixtures/static_outputs").resolve()
+    jadx_sources = Path("tests/fixtures/jadx_sources").resolve()
+    sample_path = tmp_path / "sample.apk"
+    sample_path.write_bytes(b"apk")
+    scripts_root = tmp_path / "scripts"
+    scripts_root.mkdir()
+    workspace_root = tmp_path / "override-workspaces"
+    expected_registry_path = default_workspace_registry_path(workspace_root.parent)
+
+    controller = WorkspaceController(
+        db_root=tmp_path / "cache" / "gui",
+        scripts_root=scripts_root,
+        job_service=JobService(
+            static_analyzer=_FakeStaticAnalyzer(
+                StaticArtifacts(
+                    output_root=tmp_path / "cache",
+                    report_dir=tmp_path / "cache" / "报告" / "sample",
+                    cache_dir=tmp_path / "cache" / "sample",
+                    analysis_json=fixture_root / "sample_analysis.json",
+                    callback_config_json=fixture_root / "sample_callback-config.json",
+                    noise_log_json=tmp_path / "cache" / "sample" / "noise-log.json",
+                    jadx_sources_dir=jadx_sources,
+                    jadx_project_dir=None,
+                )
+            )
+        ),
+        workspace_service=WorkspaceService(),
+        case_queue_service=CaseQueueService(),
+        custom_script_service=CustomScriptService(scripts_root),
+        report_export_service=ReportExportService(),
+    )
+
+    state = controller.initialize_workspace(
+        sample_path=sample_path,
+        workspace_root=workspace_root,
+        title="控制器案件",
+    )
+    client = TestClient(build_app(default_workspace_root=tmp_path / "workspaces"))
+
+    cases_response = client.get("/api/cases")
+    workspace_response = client.get(f"/api/cases/{state.workspace.case_id}/workspace")
+
+    assert expected_registry_path == controller.db_root / "workspace-registry.json"
+    assert cases_response.status_code == 200
+    assert cases_response.json()["items"] == [
+        {
+            "case_id": state.workspace.case_id,
+            "title": "控制器案件",
+            "workspace_root": str(state.workspace.workspace_root),
+        }
+    ]
+    assert workspace_response.status_code == 200
+    assert workspace_response.json()["title"] == "控制器案件"
