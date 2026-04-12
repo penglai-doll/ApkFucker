@@ -108,9 +108,18 @@ export async function openWorkspaceInJadx(caseId: string): Promise<OpenJadxRespo
   return parseJsonResponse<OpenJadxResponse>(response, "打开 JADX 失败");
 }
 
-export async function startExecution(caseId: string): Promise<ExecutionStartResponse> {
+export async function startExecution(
+  caseId: string,
+  options: { executionMode?: string | null } = {},
+): Promise<ExecutionStartResponse> {
   const response = await fetch(apiUrl(`/api/cases/${encodeURIComponent(caseId)}/executions`), {
     method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      execution_mode: options.executionMode ?? null,
+    }),
   });
   return parseJsonResponse<ExecutionStartResponse>(response, "启动执行失败");
 }

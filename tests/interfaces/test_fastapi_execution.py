@@ -65,11 +65,15 @@ def test_start_execution_returns_started_and_broadcasts_websocket_event(tmp_path
     client = TestClient(build_app(default_workspace_root=workspace_root))
 
     with client.websocket_connect("/ws") as websocket:
-        response = client.post("/api/cases/case-123/executions")
+        response = client.post(
+            "/api/cases/case-123/executions",
+            json={"execution_mode": "real_frida_session"},
+        )
         assert response.status_code == 202
         assert response.json() == {
             "case_id": "case-123",
             "status": "started",
+            "execution_mode": "real_frida_session",
         }
         event = websocket.receive_json()
 
@@ -77,6 +81,7 @@ def test_start_execution_returns_started_and_broadcasts_websocket_event(tmp_path
         "type": "execution.started",
         "case_id": "case-123",
         "status": "started",
+        "execution_mode": "real_frida_session",
     }
 
 

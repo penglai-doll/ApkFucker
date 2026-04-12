@@ -7,8 +7,10 @@ type ExecutionConsolePanelProps = {
   events: WorkspaceEvent[];
   isLoadingEnvironment: boolean;
   isStarting: boolean;
+  onExecutionModeChange: (value: string) => void;
   onStart: () => void;
   recommendedExecutionMode: string | null;
+  selectedExecutionMode: string;
   startDisabled: boolean;
   statusText: string;
   tools: EnvironmentToolStatus[];
@@ -131,8 +133,10 @@ export function ExecutionConsolePanel({
   events,
   isLoadingEnvironment,
   isStarting,
+  onExecutionModeChange,
   onStart,
   recommendedExecutionMode,
+  selectedExecutionMode,
   startDisabled,
   statusText,
   tools,
@@ -147,6 +151,20 @@ export function ExecutionConsolePanel({
         <>
           <p>环境概览：{localizeEnvironmentSummary(environmentSummary, tools)}</p>
           <p>推荐预设：{localizeRecommendedPreset(recommendedExecutionMode)}</p>
+          <label>
+            执行预设
+            <select
+              aria-label="执行预设"
+              value={selectedExecutionMode}
+              onChange={(event) => onExecutionModeChange(event.target.value)}
+            >
+              {executionPresets.map((preset) => (
+                <option key={preset.key} value={preset.key} disabled={!preset.available}>
+                  {localizePresetLabel(preset.key, preset.label)} · {localizePresetDetail(preset.detail)}
+                </option>
+              ))}
+            </select>
+          </label>
           <ul aria-label="执行预设状态">
             {executionPresets.length === 0 ? <li>暂无执行预设信息。</li> : null}
             {executionPresets.map((preset) => (

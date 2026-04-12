@@ -119,11 +119,18 @@ class OpenJadxResponse(BaseModel):
     status: str
 
 
+class ExecutionStartRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    execution_mode: str | None = None
+
+
 class ExecutionStartResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     case_id: str
     status: str
+    execution_mode: str | None = None
 
 
 class ReportExportResponse(BaseModel):

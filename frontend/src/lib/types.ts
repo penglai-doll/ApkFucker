@@ -129,6 +129,7 @@ export type EnvironmentStatus = {
 export type ExecutionStartResponse = {
   case_id: string;
   status: string;
+  execution_mode: string | null;
 };
 
 export type ReportExportResponse = {

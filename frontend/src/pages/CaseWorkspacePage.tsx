@@ -56,6 +56,7 @@ export function CaseWorkspacePage(): JSX.Element {
   const [environmentTools, setEnvironmentTools] = useState<EnvironmentToolStatus[]>([]);
   const [isLoadingEnvironment, setIsLoadingEnvironment] = useState(Boolean(caseId));
   const [environmentError, setEnvironmentError] = useState<string | null>(null);
+  const [selectedExecutionMode, setSelectedExecutionMode] = useState("fake_backend");
   const [executionResponse, setExecutionResponse] = useState<ExecutionStartResponse | null>(null);
   const [reportResponse, setReportResponse] = useState<ReportExportResponse | null>(null);
   const [isStartingExecution, setIsStartingExecution] = useState(false);
@@ -86,6 +87,7 @@ export function CaseWorkspacePage(): JSX.Element {
       setEnvironmentTools([]);
       setIsLoadingEnvironment(false);
       setEnvironmentError(null);
+      setSelectedExecutionMode("fake_backend");
       setExecutionResponse(null);
       setReportResponse(null);
       return;
@@ -111,6 +113,7 @@ export function CaseWorkspacePage(): JSX.Element {
     setEnvironmentTools([]);
     setIsLoadingEnvironment(true);
     setEnvironmentError(null);
+    setSelectedExecutionMode("fake_backend");
     setExecutionResponse(null);
     setReportResponse(null);
 
@@ -163,6 +166,11 @@ export function CaseWorkspacePage(): JSX.Element {
         setRecommendedExecutionMode(response.recommended_execution_mode);
         setExecutionPresets(response.execution_presets);
         setEnvironmentTools(response.tools);
+        const preferredMode =
+          response.recommended_execution_mode ??
+          response.execution_presets.find((preset) => preset.available)?.key ??
+          "fake_backend";
+        setSelectedExecutionMode(preferredMode);
       })
       .catch(() => {
         if (!active) {
@@ -173,6 +181,7 @@ export function CaseWorkspacePage(): JSX.Element {
         setExecutionPresets([]);
         setEnvironmentTools([]);
         setEnvironmentError("执行环境暂时不可用，请稍后重试。");
+        setSelectedExecutionMode("fake_backend");
       })
       .finally(() => {
         if (active) {
@@ -322,7 +331,9 @@ export function CaseWorkspacePage(): JSX.Element {
     const requestCaseId = caseId;
     setIsStartingExecution(true);
     try {
-      const response = await startExecution(requestCaseId);
+      const response = await startExecution(requestCaseId, {
+        executionMode: selectedExecutionMode,
+      });
       if (activeCaseIdRef.current !== requestCaseId) {
         return;
       }
@@ -334,6 +345,7 @@ export function CaseWorkspacePage(): JSX.Element {
       setExecutionResponse({
         case_id: requestCaseId,
         status: "error",
+        execution_mode: selectedExecutionMode,
       });
     } finally {
       if (activeCaseIdRef.current === requestCaseId) {
@@ -423,10 +435,12 @@ export function CaseWorkspacePage(): JSX.Element {
         events={events}
         isLoadingEnvironment={isLoadingEnvironment}
         isStarting={isStartingExecution}
+        onExecutionModeChange={setSelectedExecutionMode}
         onStart={() => {
           void handleStartExecution();
         }}
         recommendedExecutionMode={recommendedExecutionMode}
+        selectedExecutionMode={selectedExecutionMode}
         startDisabled={!caseId || isStartingExecution}
         statusText={executionStatusText}
         tools={environmentTools}

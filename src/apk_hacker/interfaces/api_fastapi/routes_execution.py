@@ -9,6 +9,7 @@ from fastapi import status
 from apk_hacker.application.services.case_queue_service import CaseQueueService
 from apk_hacker.application.services.workspace_registry_service import WorkspaceRegistryService
 from apk_hacker.interfaces.api_fastapi.routes_cases import _known_workspace_roots
+from apk_hacker.interfaces.api_fastapi.schemas import ExecutionStartRequest
 from apk_hacker.interfaces.api_fastapi.schemas import ExecutionStartResponse
 from apk_hacker.interfaces.api_fastapi.websocket_hub import WebSocketHub
 
@@ -42,7 +43,10 @@ def build_execution_router(
         response_model=ExecutionStartResponse,
         status_code=status.HTTP_202_ACCEPTED,
     )
-    async def start_execution(case_id: str) -> ExecutionStartResponse:
+    async def start_execution(
+        case_id: str,
+        payload: ExecutionStartRequest | None = None,
+    ) -> ExecutionStartResponse:
         workspace_root = _find_case_workspace(
             case_id,
             case_queue_service=queue_service,
@@ -52,13 +56,19 @@ def build_execution_router(
         if workspace_root is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Case not found")
 
+        execution_mode = payload.execution_mode if payload is not None else None
         event = {
             "type": "execution.started",
             "case_id": case_id,
             "status": "started",
+            "execution_mode": execution_mode,
         }
         await hub.broadcast(event)
         registry_service.set_last_opened_workspace(workspace_root)
-        return ExecutionStartResponse(case_id=case_id, status="started")
+        return ExecutionStartResponse(
+            case_id=case_id,
+            status="started",
+            execution_mode=execution_mode,
+        )
 
     return router

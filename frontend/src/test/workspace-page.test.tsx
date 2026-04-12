@@ -212,6 +212,7 @@ describe("CaseWorkspacePage", () => {
     expect(screen.getByText("真实设备：就绪（Frida 会话）")).toBeInTheDocument();
     expect(screen.getByText("Frida 会话：就绪")).toBeInTheDocument();
     expect(screen.getByText("Frida 探测：不可用（缺少 frida）")).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "执行预设" })).toHaveValue("real_frida_session");
 
     expect(screen.getByRole("textbox", { name: "搜索方法" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "搜索方法" })).toBeInTheDocument();
@@ -394,6 +395,7 @@ describe("CaseWorkspacePage", () => {
     vi.mocked(startExecution).mockResolvedValue({
       case_id: "case-004",
       status: "started",
+      execution_mode: "real_adb_probe",
     });
     vi.mocked(exportReport).mockResolvedValue({
       case_id: "case-004",
@@ -408,9 +410,14 @@ describe("CaseWorkspacePage", () => {
       </MemoryRouter>,
     );
 
+    fireEvent.change(await screen.findByRole("combobox", { name: "执行预设" }), {
+      target: { value: "real_adb_probe" },
+    });
     fireEvent.click(await screen.findByRole("button", { name: "启动执行" }));
     await waitFor(() => {
-      expect(vi.mocked(startExecution)).toHaveBeenCalledWith("case-004");
+      expect(vi.mocked(startExecution)).toHaveBeenCalledWith("case-004", {
+        executionMode: "real_adb_probe",
+      });
     });
     expect(await screen.findByText("当前状态：已启动")).toBeInTheDocument();
 
@@ -424,7 +431,11 @@ describe("CaseWorkspacePage", () => {
   });
 
   it("does not leak in-flight action results into the next case workspace", async () => {
-    const executionDeferred = createDeferred<{ case_id: string; status: string }>();
+    const executionDeferred = createDeferred<{
+      case_id: string;
+      status: string;
+      execution_mode: string | null;
+    }>();
     const reportDeferred = createDeferred<{ case_id: string; report_path: string }>();
     const openDeferred = createDeferred<{ case_id: string; status: string }>();
     vi.mocked(startExecution).mockImplementation(() => executionDeferred.promise);
@@ -469,7 +480,7 @@ describe("CaseWorkspacePage", () => {
     expect(await screen.findByText("当前案件：Beta 样本")).toBeInTheDocument();
 
     await act(async () => {
-      executionDeferred.resolve({ case_id: "case-001", status: "started" });
+      executionDeferred.resolve({ case_id: "case-001", status: "started", execution_mode: "fake_backend" });
       reportDeferred.resolve({
         case_id: "case-001",
         report_path: "/tmp/workspaces/case-001/reports/case-001-report.md",
