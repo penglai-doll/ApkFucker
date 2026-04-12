@@ -18,9 +18,43 @@ from apk_hacker.interfaces.api_fastapi.app import build_app
 class _FakeStaticAnalyzer:
     def __init__(self, artifacts: StaticArtifacts) -> None:
         self.artifacts = artifacts
+        self.calls: list[tuple[Path, Path | None, str]] = []
 
     def analyze(self, target_path: Path, output_dir: Path | None = None, mode: str = "auto") -> StaticArtifacts:
+        self.calls.append((target_path, output_dir, mode))
         return self.artifacts
+
+
+class _FakeJadxLauncher:
+    def __init__(self, resolved_path: str | None = "/usr/local/bin/jadx-gui") -> None:
+        self.resolved_path = resolved_path
+        self.open_calls: list[tuple[str, Path]] = []
+
+    def resolve(self, explicit_path: str | None) -> str | None:
+        return self.resolved_path
+
+    def open(self, jadx_gui_path: str, target_path: Path) -> None:
+        self.open_calls.append((jadx_gui_path, target_path))
+
+
+def _make_static_analyzer(
+    *,
+    tmp_path: Path,
+    jadx_sources_dir: Path | None = None,
+) -> _FakeStaticAnalyzer:
+    fixture_root = Path("tests/fixtures/static_outputs").resolve()
+    return _FakeStaticAnalyzer(
+        StaticArtifacts(
+            output_root=tmp_path / "cache",
+            report_dir=tmp_path / "cache" / "报告" / "sample",
+            cache_dir=tmp_path / "cache" / "sample",
+            analysis_json=fixture_root / "sample_analysis.json",
+            callback_config_json=fixture_root / "sample_callback-config.json",
+            noise_log_json=tmp_path / "cache" / "sample" / "noise-log.json",
+            jadx_sources_dir=jadx_sources_dir,
+            jadx_project_dir=None,
+        )
+    )
 
 
 def test_import_case_creates_workspace(tmp_path: Path) -> None:
@@ -199,3 +233,235 @@ def test_api_sees_controller_initialized_workspace_via_default_registry_path(tmp
     ]
     assert workspace_response.status_code == 200
     assert workspace_response.json()["title"] == "控制器案件"
+
+
+def test_workspace_detail_returns_static_brief_and_custom_scripts(tmp_path: Path) -> None:
+    sample = tmp_path / "detail-demo.apk"
+    sample.write_bytes(b"apk")
+    workspace_root = tmp_path / "workspaces"
+    scripts_root = tmp_path / "scripts"
+    scripts_root.mkdir()
+    (scripts_root / "ssl-okhttp.js").write_text("// ssl", encoding="utf-8")
+    (scripts_root / "cipher-monitor.js").write_text("// crypto", encoding="utf-8")
+    static_analyzer = _make_static_analyzer(
+        tmp_path=tmp_path,
+        jadx_sources_dir=Path("tests/fixtures/jadx_sources").resolve(),
+    )
+    client = TestClient(
+        build_app(
+            default_workspace_root=workspace_root,
+            static_analyzer=static_analyzer,
+            custom_scripts_root=scripts_root,
+        )
+    )
+
+    create_response = client.post(
+        "/api/cases/import",
+        json={
+            "sample_path": str(sample),
+            "workspace_root": str(workspace_root),
+            "title": "静态简报案件",
+        },
+    )
+    case_id = create_response.json()["case_id"]
+
+    detail_response = client.get(f"/api/cases/{case_id}/workspace/detail")
+
+    assert detail_response.status_code == 200
+    payload = detail_response.json()
+    assert payload["case_id"] == case_id
+    assert payload["title"] == "静态简报案件"
+    assert payload["package_name"] == "com.demo.shell"
+    assert payload["technical_tags"] == ["webview-hybrid", "network-callback"]
+    assert payload["dangerous_permissions"] == ["android.permission.READ_SMS", "android.permission.RECORD_AUDIO"]
+    assert payload["callback_endpoints"] == ["https://demo-c2.example/api/upload", "demo-c2.example", "1.2.3.4"]
+    assert payload["callback_clues"]
+    assert payload["crypto_signals"] == ["AES/CBC/PKCS5Padding", "HMAC-SHA256"]
+    assert payload["packer_hints"] == ["com.tencent.legu"]
+    assert payload["limitations"]
+    assert [item["name"] for item in payload["custom_scripts"]] == ["cipher-monitor", "ssl-okhttp"]
+    assert payload["can_open_in_jadx"] is True
+    assert payload["has_method_index"] is True
+    assert payload["method_count"] > 0
+    assert len(static_analyzer.calls) == 1
+
+
+def test_workspace_methods_filters_results_and_uses_loaded_bundle(tmp_path: Path) -> None:
+    sample = tmp_path / "methods-demo.apk"
+    sample.write_bytes(b"apk")
+    workspace_root = tmp_path / "workspaces"
+    static_analyzer = _make_static_analyzer(
+        tmp_path=tmp_path,
+        jadx_sources_dir=Path("tests/fixtures/jadx_sources").resolve(),
+    )
+    client = TestClient(
+        build_app(
+            default_workspace_root=workspace_root,
+            static_analyzer=static_analyzer,
+        )
+    )
+
+    create_response = client.post(
+        "/api/cases/import",
+        json={
+            "sample_path": str(sample),
+            "workspace_root": str(workspace_root),
+            "title": "方法检索案件",
+        },
+    )
+    case_id = create_response.json()["case_id"]
+
+    detail_response = client.get(f"/api/cases/{case_id}/workspace/detail")
+    assert detail_response.status_code == 200
+
+    methods_response = client.get(
+        f"/api/cases/{case_id}/workspace/methods",
+        params={"query": "upload", "limit": 2},
+    )
+
+    assert methods_response.status_code == 200
+    payload = methods_response.json()
+    assert payload["items"]
+    assert len(payload["items"]) <= 2
+    assert {item["method_name"] for item in payload["items"]} == {"buildUploadUrl"}
+    assert len(static_analyzer.calls) == 1
+
+
+def test_workspace_methods_returns_empty_list_without_jadx_sources(tmp_path: Path) -> None:
+    sample = tmp_path / "methods-empty.apk"
+    sample.write_bytes(b"apk")
+    workspace_root = tmp_path / "workspaces"
+    static_analyzer = _make_static_analyzer(tmp_path=tmp_path, jadx_sources_dir=None)
+    client = TestClient(
+        build_app(
+            default_workspace_root=workspace_root,
+            static_analyzer=static_analyzer,
+        )
+    )
+
+    create_response = client.post(
+        "/api/cases/import",
+        json={
+            "sample_path": str(sample),
+            "workspace_root": str(workspace_root),
+            "title": "无索引案件",
+        },
+    )
+    case_id = create_response.json()["case_id"]
+
+    methods_response = client.get(f"/api/cases/{case_id}/workspace/methods", params={"query": "upload"})
+
+    assert methods_response.status_code == 200
+    assert methods_response.json() == {"items": [], "total": 0}
+
+
+def test_workspace_recommendations_include_template_fallback_without_method_index(tmp_path: Path) -> None:
+    sample = tmp_path / "recommend-demo.apk"
+    sample.write_bytes(b"apk")
+    workspace_root = tmp_path / "workspaces"
+    static_analyzer = _make_static_analyzer(tmp_path=tmp_path, jadx_sources_dir=None)
+    client = TestClient(
+        build_app(
+            default_workspace_root=workspace_root,
+            static_analyzer=static_analyzer,
+        )
+    )
+
+    create_response = client.post(
+        "/api/cases/import",
+        json={
+            "sample_path": str(sample),
+            "workspace_root": str(workspace_root),
+            "title": "推荐案件",
+        },
+    )
+    case_id = create_response.json()["case_id"]
+
+    recommendations_response = client.get(
+        f"/api/cases/{case_id}/workspace/recommendations",
+        params={"limit": 5},
+    )
+
+    assert recommendations_response.status_code == 200
+    payload = recommendations_response.json()
+    assert payload["items"]
+    assert payload["items"][0]["kind"] == "template_hook"
+    assert "SSL" in payload["items"][0]["title"]
+
+
+def test_open_jadx_returns_success_when_launcher_is_available(tmp_path: Path) -> None:
+    sample = tmp_path / "jadx-open.apk"
+    sample.write_bytes(b"apk")
+    workspace_root = tmp_path / "workspaces"
+    static_analyzer = _make_static_analyzer(
+        tmp_path=tmp_path,
+        jadx_sources_dir=Path("tests/fixtures/jadx_sources").resolve(),
+    )
+    launcher = _FakeJadxLauncher()
+    client = TestClient(
+        build_app(
+            default_workspace_root=workspace_root,
+            static_analyzer=static_analyzer,
+            jadx_gui_resolver=launcher.resolve,
+            jadx_opener=launcher.open,
+        )
+    )
+
+    create_response = client.post(
+        "/api/cases/import",
+        json={
+            "sample_path": str(sample),
+            "workspace_root": str(workspace_root),
+            "title": "JADX 打开案件",
+        },
+    )
+    case_id = create_response.json()["case_id"]
+
+    response = client.post(f"/api/cases/{case_id}/actions/open-jadx")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "case_id": case_id,
+        "status": "opened",
+    }
+    assert launcher.open_calls == [
+        (
+            "/usr/local/bin/jadx-gui",
+            Path("tests/fixtures/jadx_sources").resolve(),
+        )
+    ]
+
+
+def test_open_jadx_returns_409_when_launcher_is_unavailable(tmp_path: Path) -> None:
+    sample = tmp_path / "jadx-missing.apk"
+    sample.write_bytes(b"apk")
+    workspace_root = tmp_path / "workspaces"
+    static_analyzer = _make_static_analyzer(
+        tmp_path=tmp_path,
+        jadx_sources_dir=Path("tests/fixtures/jadx_sources").resolve(),
+    )
+    launcher = _FakeJadxLauncher(resolved_path=None)
+    client = TestClient(
+        build_app(
+            default_workspace_root=workspace_root,
+            static_analyzer=static_analyzer,
+            jadx_gui_resolver=launcher.resolve,
+            jadx_opener=launcher.open,
+        )
+    )
+
+    create_response = client.post(
+        "/api/cases/import",
+        json={
+            "sample_path": str(sample),
+            "workspace_root": str(workspace_root),
+            "title": "JADX 缺失案件",
+        },
+    )
+    case_id = create_response.json()["case_id"]
+
+    response = client.post(f"/api/cases/{case_id}/actions/open-jadx")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "jadx-gui is not configured or not available"
+    assert launcher.open_calls == []
