@@ -4,19 +4,35 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "../App";
-import { getStartupSettings, getWorkspace, listCases } from "../lib/api";
+import {
+  getStartupSettings,
+  getWorkspaceDetail,
+  getWorkspaceMethods,
+  getWorkspaceRecommendations,
+  listCases,
+} from "../lib/api";
+import { connectWorkspaceEvents } from "../lib/ws";
 
 vi.mock("../lib/api", () => ({
   getStartupSettings: vi.fn(),
-  getWorkspace: vi.fn(),
+  getWorkspaceDetail: vi.fn(),
+  getWorkspaceMethods: vi.fn(),
+  getWorkspaceRecommendations: vi.fn(),
   listCases: vi.fn(),
+}));
+
+vi.mock("../lib/ws", () => ({
+  connectWorkspaceEvents: vi.fn(),
 }));
 
 describe("App shell", () => {
   beforeEach(() => {
     vi.mocked(getStartupSettings).mockReset();
     vi.mocked(listCases).mockReset();
-    vi.mocked(getWorkspace).mockReset();
+    vi.mocked(getWorkspaceDetail).mockReset();
+    vi.mocked(getWorkspaceMethods).mockReset();
+    vi.mocked(getWorkspaceRecommendations).mockReset();
+    vi.mocked(connectWorkspaceEvents).mockReset();
     vi.mocked(getStartupSettings).mockResolvedValue({
       launch_view: "queue",
       last_workspace_root: null,
@@ -24,6 +40,27 @@ describe("App shell", () => {
       title: null,
     });
     vi.mocked(listCases).mockResolvedValue({ items: [] });
+    vi.mocked(getWorkspaceDetail).mockResolvedValue({
+      case_id: "case-default",
+      title: "默认案件",
+      package_name: "com.example.default",
+      technical_tags: [],
+      dangerous_permissions: [],
+      callback_endpoints: [],
+      callback_clues: [],
+      crypto_signals: [],
+      packer_hints: [],
+      limitations: [],
+      custom_scripts: [],
+      can_open_in_jadx: false,
+      has_method_index: false,
+      method_count: 0,
+    });
+    vi.mocked(getWorkspaceMethods).mockResolvedValue({ items: [], total: 0 });
+    vi.mocked(getWorkspaceRecommendations).mockResolvedValue({ items: [] });
+    vi.mocked(connectWorkspaceEvents).mockImplementation(() => ({
+      close: vi.fn(),
+    }));
   });
 
   it("renders the Chinese dual-mode app frame", async () => {
@@ -51,10 +88,21 @@ describe("App shell", () => {
       case_id: "case-009",
       title: "Recovered 样本",
     });
-    vi.mocked(getWorkspace).mockResolvedValue({
+    vi.mocked(getWorkspaceDetail).mockResolvedValue({
       case_id: "case-009",
       title: "Recovered 样本",
-      view: "workspace",
+      package_name: "com.example.recovered",
+      technical_tags: [],
+      dangerous_permissions: [],
+      callback_endpoints: [],
+      callback_clues: [],
+      crypto_signals: [],
+      packer_hints: [],
+      limitations: [],
+      custom_scripts: [],
+      can_open_in_jadx: false,
+      has_method_index: false,
+      method_count: 0,
     });
 
     window.history.replaceState({}, "", "/");
@@ -62,7 +110,7 @@ describe("App shell", () => {
 
     expect(await screen.findByText("当前案件：Recovered 样本")).toBeInTheDocument();
     expect(vi.mocked(getStartupSettings)).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(getWorkspace)).toHaveBeenCalledWith("case-009");
+    expect(vi.mocked(getWorkspaceDetail)).toHaveBeenCalledWith("case-009");
   });
 
   it("does not override a concrete workspace route during startup restore", async () => {
@@ -72,18 +120,29 @@ describe("App shell", () => {
       case_id: "case-009",
       title: "Recovered 样本",
     });
-    vi.mocked(getWorkspace).mockResolvedValue({
+    vi.mocked(getWorkspaceDetail).mockResolvedValue({
       case_id: "case-001",
       title: "Pinned 样本",
-      view: "workspace",
+      package_name: "com.example.pinned",
+      technical_tags: [],
+      dangerous_permissions: [],
+      callback_endpoints: [],
+      callback_clues: [],
+      crypto_signals: [],
+      packer_hints: [],
+      limitations: [],
+      custom_scripts: [],
+      can_open_in_jadx: false,
+      has_method_index: false,
+      method_count: 0,
     });
 
     window.history.replaceState({}, "", "/workspace/case-001");
     render(<App />);
 
     expect(await screen.findByText("当前案件：Pinned 样本")).toBeInTheDocument();
-    expect(vi.mocked(getWorkspace)).toHaveBeenCalledWith("case-001");
-    expect(vi.mocked(getWorkspace)).not.toHaveBeenCalledWith("case-009");
+    expect(vi.mocked(getWorkspaceDetail)).toHaveBeenCalledWith("case-001");
+    expect(vi.mocked(getWorkspaceDetail)).not.toHaveBeenCalledWith("case-009");
   });
 
   it("keeps the Chinese shell for unknown routes", async () => {
@@ -106,10 +165,21 @@ describe("App shell", () => {
         },
       ],
     });
-    vi.mocked(getWorkspace).mockResolvedValue({
+    vi.mocked(getWorkspaceDetail).mockResolvedValue({
       case_id: "case-001",
       title: "Alpha 样本",
-      view: "workspace",
+      package_name: "com.example.alpha",
+      technical_tags: [],
+      dangerous_permissions: [],
+      callback_endpoints: [],
+      callback_clues: [],
+      crypto_signals: [],
+      packer_hints: [],
+      limitations: [],
+      custom_scripts: [],
+      can_open_in_jadx: false,
+      has_method_index: false,
+      method_count: 0,
     });
 
     window.history.replaceState({}, "", "/queue");
@@ -120,6 +190,6 @@ describe("App shell", () => {
 
     expect(await screen.findByText("当前案件：Alpha 样本")).toBeInTheDocument();
     expect(screen.getByLabelText("当前模式")).toHaveTextContent("案件工作台");
-    expect(vi.mocked(getWorkspace)).toHaveBeenCalledWith("case-001");
+    expect(vi.mocked(getWorkspaceDetail)).toHaveBeenCalledWith("case-001");
   });
 });

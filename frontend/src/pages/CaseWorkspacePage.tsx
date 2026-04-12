@@ -1,25 +1,36 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 
+import { EvidencePanel } from "../components/workspace/EvidencePanel";
+import { ExecutionConsolePanel } from "../components/workspace/ExecutionConsolePanel";
 import { HookStudioPanel } from "../components/workspace/HookStudioPanel";
+import { ReportsPanel } from "../components/workspace/ReportsPanel";
 import { StaticBriefPanel } from "../components/workspace/StaticBriefPanel";
 import {
+  exportReport,
   getWorkspaceDetail,
   getWorkspaceMethods,
   getWorkspaceRecommendations,
   openWorkspaceInJadx,
+  startExecution,
 } from "../lib/api";
 import type {
+  ExecutionStartResponse,
   HookRecommendationSummary,
+  ReportExportResponse,
   WorkspaceDetailResponse,
+  WorkspaceEvent,
   WorkspaceMethodSummary,
+  WorkspaceSummary,
 } from "../lib/types";
+import { connectWorkspaceEvents } from "../lib/ws";
 
 const METHOD_LIMIT = 12;
 const RECOMMENDATION_LIMIT = 6;
 
 export function CaseWorkspacePage(): JSX.Element {
   const { caseId } = useParams<{ caseId: string }>();
+  const activeCaseIdRef = useRef<string | null>(caseId ?? null);
   const [detail, setDetail] = useState<WorkspaceDetailResponse | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [isLoadingDetail, setIsLoadingDetail] = useState(Boolean(caseId));
@@ -35,6 +46,15 @@ export function CaseWorkspacePage(): JSX.Element {
   const [isOpeningInJadx, setIsOpeningInJadx] = useState(false);
   const [openJadxMessage, setOpenJadxMessage] = useState<string | null>(null);
   const [openJadxError, setOpenJadxError] = useState<string | null>(null);
+  const [events, setEvents] = useState<WorkspaceEvent[]>([]);
+  const [executionResponse, setExecutionResponse] = useState<ExecutionStartResponse | null>(null);
+  const [reportResponse, setReportResponse] = useState<ReportExportResponse | null>(null);
+  const [isStartingExecution, setIsStartingExecution] = useState(false);
+  const [isExportingReport, setIsExportingReport] = useState(false);
+
+  useEffect(() => {
+    activeCaseIdRef.current = caseId ?? null;
+  }, [caseId]);
 
   useEffect(() => {
     if (!caseId) {
@@ -50,6 +70,9 @@ export function CaseWorkspacePage(): JSX.Element {
       setRecommendationsError(null);
       setOpenJadxMessage(null);
       setOpenJadxError(null);
+      setEvents([]);
+      setExecutionResponse(null);
+      setReportResponse(null);
       return;
     }
 
@@ -66,6 +89,9 @@ export function CaseWorkspacePage(): JSX.Element {
     setRecommendationsError(null);
     setOpenJadxMessage(null);
     setOpenJadxError(null);
+    setEvents([]);
+    setExecutionResponse(null);
+    setReportResponse(null);
 
     void getWorkspaceDetail(caseId)
       .then((response) => {
@@ -89,6 +115,33 @@ export function CaseWorkspacePage(): JSX.Element {
 
     return () => {
       active = false;
+    };
+  }, [caseId]);
+
+  useEffect(() => {
+    if (!caseId) {
+      setEvents([]);
+      return;
+    }
+
+    const connection = connectWorkspaceEvents({
+      caseId,
+      onEvent: (event) => {
+        setEvents((current) => [...current, event].slice(-20));
+      },
+      onError: () => {
+        setEvents((current) => [
+          ...current,
+          {
+            type: "workspace.events.error",
+            case_id: caseId,
+          },
+        ]);
+      },
+    });
+
+    return () => {
+      connection.close();
     };
   }, [caseId]);
 
@@ -171,17 +224,82 @@ export function CaseWorkspacePage(): JSX.Element {
       return;
     }
 
+    const requestCaseId = caseId;
     setIsOpeningInJadx(true);
     setOpenJadxMessage(null);
     setOpenJadxError(null);
 
     try {
-      await openWorkspaceInJadx(caseId);
-      setOpenJadxMessage("已请求打开 JADX。");
+      await openWorkspaceInJadx(requestCaseId);
+      if (activeCaseIdRef.current !== requestCaseId) {
+        return;
+      }
+      setOpenJadxMessage("已尝试在本机打开 JADX。");
     } catch {
+      if (activeCaseIdRef.current !== requestCaseId) {
+        return;
+      }
       setOpenJadxError("打开 JADX 失败，请检查本机配置。");
     } finally {
-      setIsOpeningInJadx(false);
+      if (activeCaseIdRef.current === requestCaseId) {
+        setIsOpeningInJadx(false);
+      }
+    }
+  }
+
+  async function handleStartExecution(): Promise<void> {
+    if (!caseId) {
+      return;
+    }
+
+    const requestCaseId = caseId;
+    setIsStartingExecution(true);
+    try {
+      const response = await startExecution(requestCaseId);
+      if (activeCaseIdRef.current !== requestCaseId) {
+        return;
+      }
+      setExecutionResponse(response);
+    } catch {
+      if (activeCaseIdRef.current !== requestCaseId) {
+        return;
+      }
+      setExecutionResponse({
+        case_id: requestCaseId,
+        status: "error",
+      });
+    } finally {
+      if (activeCaseIdRef.current === requestCaseId) {
+        setIsStartingExecution(false);
+      }
+    }
+  }
+
+  async function handleExportReport(): Promise<void> {
+    if (!caseId) {
+      return;
+    }
+
+    const requestCaseId = caseId;
+    setIsExportingReport(true);
+    try {
+      const response = await exportReport(requestCaseId);
+      if (activeCaseIdRef.current !== requestCaseId) {
+        return;
+      }
+      setReportResponse(response);
+    } catch {
+      if (activeCaseIdRef.current !== requestCaseId) {
+        return;
+      }
+      setReportResponse({
+        case_id: requestCaseId,
+        report_path: "报告导出失败，请稍后重试。",
+      });
+    } finally {
+      if (activeCaseIdRef.current === requestCaseId) {
+        setIsExportingReport(false);
+      }
     }
   }
 
@@ -192,6 +310,16 @@ export function CaseWorkspacePage(): JSX.Element {
 
     setMethodQuery(searchValue.trim());
   }
+
+  const latestEvent = events.length > 0 ? events[events.length - 1] : null;
+  const executionStatusText = executionResponse?.status ?? latestEvent?.status ?? "idle";
+  const workspaceSummary: WorkspaceSummary | null = detail
+    ? {
+        case_id: detail.case_id,
+        title: detail.title,
+        view: "workspace",
+      }
+    : null;
 
   return (
     <section aria-labelledby="case-workspace-title">
@@ -220,6 +348,23 @@ export function CaseWorkspacePage(): JSX.Element {
         recommendationsError={recommendationsError}
         searchError={methodsError}
         searchValue={searchValue}
+      />
+      <ExecutionConsolePanel
+        events={events}
+        isStarting={isStartingExecution}
+        onStart={() => {
+          void handleStartExecution();
+        }}
+        startDisabled={!caseId || isStartingExecution}
+        statusText={executionStatusText}
+      />
+      <EvidencePanel caseId={caseId ?? null} latestEvent={latestEvent} workspace={workspaceSummary} />
+      <ReportsPanel
+        isExporting={isExportingReport}
+        onExport={() => {
+          void handleExportReport();
+        }}
+        reportPath={reportResponse?.report_path ?? null}
       />
     </section>
   );

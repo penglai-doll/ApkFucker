@@ -97,14 +97,14 @@ export async function openWorkspaceInJadx(caseId: string): Promise<OpenJadxRespo
 }
 
 export async function startExecution(caseId: string): Promise<ExecutionStartResponse> {
-  const response = await fetch(apiUrl(`/api/cases/${caseId}/executions`), {
+  const response = await fetch(apiUrl(`/api/cases/${encodeURIComponent(caseId)}/executions`), {
     method: "POST",
   });
   return parseJsonResponse<ExecutionStartResponse>(response, "启动执行失败");
 }
 
 export async function exportReport(caseId: string): Promise<ReportExportResponse> {
-  const response = await fetch(apiUrl(`/api/cases/${caseId}/reports/export`), {
+  const response = await fetch(apiUrl(`/api/cases/${encodeURIComponent(caseId)}/reports/export`), {
     method: "POST",
   });
   return parseJsonResponse<ReportExportResponse>(response, "导出报告失败");

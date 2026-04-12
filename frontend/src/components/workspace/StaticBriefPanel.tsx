@@ -24,7 +24,7 @@ export function StaticBriefPanel({ detail, errorMessage, isLoading }: StaticBrie
   return (
     <section aria-labelledby="static-brief-title">
       <h3 id="static-brief-title">静态简报</h3>
-      <p>这里展示从 workspace inspection API 拉到的真实静态概览。</p>
+      <p>这里展示工作区静态检查返回的真实静态概览。</p>
 
       {isLoading ? <p>正在加载静态简报...</p> : null}
       {errorMessage ? <p role="alert">{errorMessage}</p> : null}

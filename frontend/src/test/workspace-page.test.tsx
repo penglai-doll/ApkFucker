@@ -1,31 +1,68 @@
 import "@testing-library/jest-dom/vitest";
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { createMemoryRouter, MemoryRouter, Route, RouterProvider, Routes } from "react-router-dom";
 
 import { CaseWorkspacePage } from "../pages/CaseWorkspacePage";
 import {
+  exportReport,
   getWorkspaceDetail,
   getWorkspaceMethods,
   getWorkspaceRecommendations,
   openWorkspaceInJadx,
+  startExecution,
 } from "../lib/api";
+import { connectWorkspaceEvents } from "../lib/ws";
 
 vi.mock("../lib/api", () => ({
+  exportReport: vi.fn(),
   getWorkspaceDetail: vi.fn(),
   getWorkspaceMethods: vi.fn(),
   getWorkspaceRecommendations: vi.fn(),
   openWorkspaceInJadx: vi.fn(),
+  startExecution: vi.fn(),
+}));
+
+vi.mock("../lib/ws", () => ({
+  connectWorkspaceEvents: vi.fn(),
 }));
 
 describe("CaseWorkspacePage", () => {
   beforeEach(() => {
+    vi.mocked(exportReport).mockReset();
     vi.mocked(getWorkspaceDetail).mockReset();
     vi.mocked(getWorkspaceMethods).mockReset();
     vi.mocked(getWorkspaceRecommendations).mockReset();
     vi.mocked(openWorkspaceInJadx).mockReset();
+    vi.mocked(startExecution).mockReset();
+    vi.mocked(connectWorkspaceEvents).mockReset();
+    vi.mocked(connectWorkspaceEvents).mockImplementation(({ onEvent }) => {
+      onEvent({
+        type: "execution.started",
+        case_id: "case-001",
+        status: "started",
+        payload: { source: "test" },
+      });
+      return {
+        close: vi.fn(),
+      };
+    });
   });
+
+  function createDeferred<T>(): {
+    promise: Promise<T>;
+    resolve: (value: T) => void;
+    reject: (reason?: unknown) => void;
+  } {
+    let resolve!: (value: T) => void;
+    let reject!: (reason?: unknown) => void;
+    const promise = new Promise<T>((nextResolve, nextReject) => {
+      resolve = nextResolve;
+      reject = nextReject;
+    });
+    return { promise, resolve, reject };
+  }
 
   it("loads the workspace inspection data and renders the Chinese workspace browser", async () => {
     vi.mocked(getWorkspaceDetail).mockResolvedValue({
@@ -116,8 +153,9 @@ describe("CaseWorkspacePage", () => {
     );
 
     expect(await screen.findByText("案件工作台")).toBeInTheDocument();
-    expect(await screen.findByText((content) => content.includes("Alpha 样本"))).toBeInTheDocument();
+    expect(await screen.findByText("当前案件：Alpha 样本")).toBeInTheDocument();
     expect(screen.getByText("com.example.alpha")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Hook 工作台" })).toBeInTheDocument();
     expect(screen.getByText("技术标签")).toBeInTheDocument();
     expect(screen.getByText("危险权限")).toBeInTheDocument();
     expect(screen.getByText("回连端点")).toBeInTheDocument();
@@ -128,10 +166,14 @@ describe("CaseWorkspacePage", () => {
     expect(screen.getByText("自定义脚本")).toBeInTheDocument();
     expect(screen.getByText("方法索引状态")).toBeInTheDocument();
     expect(screen.getByText("已建立")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "执行控制台" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "证据中心" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "报告与导出" })).toBeInTheDocument();
+    expect(screen.getByText("执行已启动")).toBeInTheDocument();
 
     expect(screen.getByRole("textbox", { name: "搜索方法" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "搜索方法" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Open in JADX" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "在 JADX 中打开" })).toBeInTheDocument();
 
     expect(screen.getByText("com.example.alpha.net.ApiClient")).toBeInTheDocument();
     expect(screen.getByText("方法名：sendPayload")).toBeInTheDocument();
@@ -149,6 +191,7 @@ describe("CaseWorkspacePage", () => {
     expect(vi.mocked(getWorkspaceDetail)).toHaveBeenCalledWith("case-001");
     expect(vi.mocked(getWorkspaceMethods)).toHaveBeenCalledWith("case-001", { query: "", limit: 12 });
     expect(vi.mocked(getWorkspaceRecommendations)).toHaveBeenCalledWith("case-001", { limit: 6 });
+    expect(vi.mocked(connectWorkspaceEvents)).toHaveBeenCalled();
   });
 
   it("shows a Chinese fallback when the workspace has no method index", async () => {
@@ -184,9 +227,9 @@ describe("CaseWorkspacePage", () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByText((content) => content.includes("Beta 样本"))).toBeInTheDocument();
+    expect(await screen.findByText("当前案件：Beta 样本")).toBeInTheDocument();
     expect(screen.getByText("当前没有可用的方法索引，无法浏览方法列表。")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Open in JADX" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "在 JADX 中打开" })).toBeDisabled();
   });
 
   it("opens JADX from the hook studio and shows the Chinese success state", async () => {
@@ -226,12 +269,12 @@ describe("CaseWorkspacePage", () => {
       </MemoryRouter>,
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Open in JADX" }));
+    fireEvent.click(await screen.findByRole("button", { name: "在 JADX 中打开" }));
 
     await waitFor(() => {
       expect(vi.mocked(openWorkspaceInJadx)).toHaveBeenCalledWith("case-003");
     });
-    expect(await screen.findByText("已请求打开 JADX。")).toBeInTheDocument();
+    expect(await screen.findByText("已尝试在本机打开 JADX。")).toBeInTheDocument();
   });
 
   it("shows a Chinese error state when workspace inspection fails", async () => {
@@ -246,5 +289,124 @@ describe("CaseWorkspacePage", () => {
     );
 
     expect(await screen.findByRole("alert")).toHaveTextContent("案件工作台暂时不可用。");
+  });
+
+  it("starts an execution and exports a report from the workspace page", async () => {
+    vi.mocked(getWorkspaceDetail).mockResolvedValue({
+      case_id: "case-004",
+      title: "Delta 样本",
+      package_name: "com.example.delta",
+      technical_tags: [],
+      dangerous_permissions: [],
+      callback_endpoints: [],
+      callback_clues: [],
+      crypto_signals: [],
+      packer_hints: [],
+      limitations: [],
+      custom_scripts: [],
+      can_open_in_jadx: false,
+      has_method_index: false,
+      method_count: 0,
+    });
+    vi.mocked(getWorkspaceMethods).mockResolvedValue({
+      items: [],
+      total: 0,
+    });
+    vi.mocked(getWorkspaceRecommendations).mockResolvedValue({
+      items: [],
+    });
+    vi.mocked(startExecution).mockResolvedValue({
+      case_id: "case-004",
+      status: "started",
+    });
+    vi.mocked(exportReport).mockResolvedValue({
+      case_id: "case-004",
+      report_path: "/tmp/workspaces/case-004/reports/case-004-report.md",
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/workspace/case-004"]}>
+        <Routes>
+          <Route path="/workspace/:caseId" element={<CaseWorkspacePage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "启动执行" }));
+    await waitFor(() => {
+      expect(vi.mocked(startExecution)).toHaveBeenCalledWith("case-004");
+    });
+    expect(await screen.findByText("当前状态：已启动")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "导出报告" }));
+    await waitFor(() => {
+      expect(vi.mocked(exportReport)).toHaveBeenCalledWith("case-004");
+    });
+    expect(
+      await screen.findByText((content) => content.includes("/tmp/workspaces/case-004/reports/case-004-report.md")),
+    ).toBeInTheDocument();
+  });
+
+  it("does not leak in-flight action results into the next case workspace", async () => {
+    const executionDeferred = createDeferred<{ case_id: string; status: string }>();
+    const reportDeferred = createDeferred<{ case_id: string; report_path: string }>();
+    const openDeferred = createDeferred<{ case_id: string; status: string }>();
+    vi.mocked(startExecution).mockImplementation(() => executionDeferred.promise);
+    vi.mocked(exportReport).mockImplementation(() => reportDeferred.promise);
+    vi.mocked(openWorkspaceInJadx).mockImplementation(() => openDeferred.promise);
+    vi.mocked(getWorkspaceDetail).mockImplementation(async (caseId) => ({
+      case_id: caseId,
+      title: caseId === "case-001" ? "Alpha 样本" : "Beta 样本",
+      package_name: caseId === "case-001" ? "com.example.alpha" : "com.example.beta",
+      technical_tags: [],
+      dangerous_permissions: [],
+      callback_endpoints: [],
+      callback_clues: [],
+      crypto_signals: [],
+      packer_hints: [],
+      limitations: [],
+      custom_scripts: [],
+      can_open_in_jadx: true,
+      has_method_index: false,
+      method_count: 0,
+    }));
+    vi.mocked(getWorkspaceMethods).mockResolvedValue({ items: [], total: 0 });
+    vi.mocked(getWorkspaceRecommendations).mockResolvedValue({ items: [] });
+    vi.mocked(connectWorkspaceEvents).mockImplementation(() => ({ close: vi.fn() }));
+
+    const router = createMemoryRouter(
+      [{ path: "/workspace/:caseId", element: <CaseWorkspacePage /> }],
+      { initialEntries: ["/workspace/case-001"] },
+    );
+
+    render(<RouterProvider router={router} />);
+
+    expect(await screen.findByText("当前案件：Alpha 样本")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "启动执行" }));
+    fireEvent.click(screen.getByRole("button", { name: "导出报告" }));
+    fireEvent.click(screen.getByRole("button", { name: "在 JADX 中打开" }));
+
+    await act(async () => {
+      await router.navigate("/workspace/case-002");
+    });
+    expect(await screen.findByText("当前案件：Beta 样本")).toBeInTheDocument();
+
+    await act(async () => {
+      executionDeferred.resolve({ case_id: "case-001", status: "started" });
+      reportDeferred.resolve({
+        case_id: "case-001",
+        report_path: "/tmp/workspaces/case-001/reports/case-001-report.md",
+      });
+      openDeferred.resolve({ case_id: "case-001", status: "opened" });
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText("当前状态：已启动")).not.toBeInTheDocument();
+      expect(screen.queryByText("已尝试在本机打开 JADX。")).not.toBeInTheDocument();
+      expect(
+        screen.queryByText((content) => content.includes("/tmp/workspaces/case-001/reports/case-001-report.md")),
+      ).not.toBeInTheDocument();
+    });
   });
 });

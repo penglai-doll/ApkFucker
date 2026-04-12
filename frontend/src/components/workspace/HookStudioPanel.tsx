@@ -29,6 +29,18 @@ function formatMethodParameters(method: WorkspaceMethodSummary): string {
   return method.parameter_types.length > 0 ? method.parameter_types.join(", ") : "无参数";
 }
 
+function localizeRecommendationKind(kind: string): string {
+  switch (kind) {
+    case "method":
+      return "方法推荐";
+    case "template":
+    case "template_hook":
+      return "模板推荐";
+    default:
+      return kind;
+  }
+}
+
 function renderMethodTags(method: WorkspaceMethodSummary): JSX.Element {
   if (method.tags.length === 0) {
     return <span>暂无标签</span>;
@@ -63,8 +75,8 @@ export function HookStudioPanel({
 }: HookStudioPanelProps): JSX.Element {
   return (
     <section aria-labelledby="hook-studio-title">
-      <h3 id="hook-studio-title">Hook Studio</h3>
-      <p>这里整合方法搜索、离线推荐和 Open in JADX，方便快速浏览样本。</p>
+      <h3 id="hook-studio-title">Hook 工作台</h3>
+      <p>这里整合方法搜索、离线推荐和 JADX 打开能力，方便快速浏览样本。</p>
 
       <section aria-labelledby="method-browser-title">
         <h4 id="method-browser-title">方法浏览</h4>
@@ -129,7 +141,7 @@ export function HookStudioPanel({
           {recommendations.map((item) => (
             <li key={item.recommendation_id}>
               <strong>{item.title}</strong>
-              <p>类型：{item.kind} · 评分：{item.score}</p>
+              <p>类型：{localizeRecommendationKind(item.kind)} · 评分：{item.score}</p>
               <p>{item.reason}</p>
               {item.method ? (
                 <p>
@@ -147,7 +159,7 @@ export function HookStudioPanel({
         <h4 id="jadx-open-title">JADX</h4>
         <p>需要深入代码时，直接打开本地 JADX。</p>
         <button type="button" onClick={onOpenInJadx} disabled={!canOpenInJadx || isOpeningInJadx}>
-          {isOpeningInJadx ? "正在打开..." : "Open in JADX"}
+          {isOpeningInJadx ? "正在打开..." : "在 JADX 中打开"}
         </button>
         {!canOpenInJadx ? <p>当前无法打开 JADX，请先确认本机配置。</p> : null}
         {openJadxMessage ? <p>{openJadxMessage}</p> : null}
