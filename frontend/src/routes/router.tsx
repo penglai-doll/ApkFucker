@@ -10,7 +10,7 @@ export function createAppRouter() {
       path: "/",
       element: <AppFrame />,
       children: [
-        { index: true, element: <Navigate replace to="/queue" /> },
+        { index: true, element: <CaseQueuePage /> },
         { path: "queue", element: <CaseQueuePage /> },
         { path: "workspace", element: <CaseWorkspacePage /> },
         { path: "workspace/:caseId", element: <CaseWorkspacePage /> },
