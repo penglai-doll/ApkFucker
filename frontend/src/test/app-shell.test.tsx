@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../App";
 import {
   getApiHealth,
+  getEnvironmentStatus,
   getStartupSettings,
   getWorkspaceDetail,
   getWorkspaceMethods,
@@ -16,6 +17,7 @@ import { connectWorkspaceEvents } from "../lib/ws";
 
 vi.mock("../lib/api", () => ({
   getApiHealth: vi.fn(),
+  getEnvironmentStatus: vi.fn(),
   getStartupSettings: vi.fn(),
   getWorkspaceDetail: vi.fn(),
   getWorkspaceMethods: vi.fn(),
@@ -31,6 +33,7 @@ describe("App shell", () => {
   beforeEach(() => {
     vi.mocked(getStartupSettings).mockReset();
     vi.mocked(getApiHealth).mockReset();
+    vi.mocked(getEnvironmentStatus).mockReset();
     vi.mocked(listCases).mockReset();
     vi.mocked(getWorkspaceDetail).mockReset();
     vi.mocked(getWorkspaceMethods).mockReset();
@@ -46,6 +49,12 @@ describe("App shell", () => {
       status: "ok",
       service: "local-api",
       default_workspace_root: "/tmp/workspaces",
+    });
+    vi.mocked(getEnvironmentStatus).mockResolvedValue({
+      summary: "4 available, 2 missing",
+      recommended_execution_mode: "real_frida_session",
+      tools: [],
+      execution_presets: [],
     });
     vi.mocked(listCases).mockResolvedValue({ items: [] });
     vi.mocked(getWorkspaceDetail).mockResolvedValue({

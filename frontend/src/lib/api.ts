@@ -1,6 +1,7 @@
 import type {
   ApiHealth,
   CaseListResponse,
+  EnvironmentStatus,
   ImportCaseRequest,
   ImportedCaseResponse,
   ExecutionStartResponse,
@@ -56,6 +57,11 @@ export async function getStartupSettings(): Promise<StartupSettings> {
 export async function getApiHealth(): Promise<ApiHealth> {
   const response = await fetch(apiUrl("/api/settings/health"));
   return parseJsonResponse<ApiHealth>(response, "本地后端健康检查失败");
+}
+
+export async function getEnvironmentStatus(): Promise<EnvironmentStatus> {
+  const response = await fetch(apiUrl("/api/settings/environment"));
+  return parseJsonResponse<EnvironmentStatus>(response, "执行环境检查失败");
 }
 
 export async function getWorkspace(caseId: string): Promise<WorkspaceSummary> {

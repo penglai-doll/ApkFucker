@@ -5,6 +5,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from apk_hacker.application.services.environment_service import EnvironmentService
 from apk_hacker.application.services.workspace_registry_service import WorkspaceRegistry
 from apk_hacker.application.services.workspace_registry_service import WorkspaceRegistryService
 from apk_hacker.interfaces.api_fastapi.app import build_app
@@ -143,4 +144,72 @@ def test_get_startup_falls_back_to_queue_when_registry_has_no_last_workspace(tmp
         "last_workspace_root": None,
         "case_id": None,
         "title": None,
+    }
+
+
+def test_get_environment_reports_tools_and_execution_presets(tmp_path: Path) -> None:
+    workspace_root = tmp_path / "workspaces"
+    environment_service = EnvironmentService(
+        resolver=lambda name: {
+            "adb": "/usr/bin/adb",
+            "jadx": "/usr/bin/jadx",
+            "jadx-gui": "/usr/bin/jadx-gui",
+        }.get(name),
+        module_resolver=lambda name: object() if name == "frida" else None,
+    )
+    client = TestClient(
+        build_app(
+            default_workspace_root=workspace_root,
+            environment_service=environment_service,
+        )
+    )
+
+    response = client.get("/api/settings/environment")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "summary": "4 available, 2 missing",
+        "recommended_execution_mode": "real_frida_session",
+        "tools": [
+            {"name": "jadx", "label": "jadx", "available": True, "path": "/usr/bin/jadx"},
+            {"name": "jadx-gui", "label": "jadx-gui", "available": True, "path": "/usr/bin/jadx-gui"},
+            {"name": "apktool", "label": "apktool", "available": False, "path": None},
+            {"name": "adb", "label": "adb", "available": True, "path": "/usr/bin/adb"},
+            {"name": "frida", "label": "frida", "available": False, "path": None},
+            {"name": "python-frida", "label": "python-frida", "available": True, "path": "module:frida"},
+        ],
+        "execution_presets": [
+            {"key": "fake_backend", "label": "Fake Backend", "available": True, "detail": "ready"},
+            {
+                "key": "real_device",
+                "label": "Real Device",
+                "available": True,
+                "detail": "ready (Frida Session)",
+            },
+            {"key": "real_adb_probe", "label": "ADB Probe", "available": True, "detail": "ready"},
+            {
+                "key": "real_frida_bootstrap",
+                "label": "Frida Bootstrap",
+                "available": True,
+                "detail": "ready",
+            },
+            {
+                "key": "real_frida_probe",
+                "label": "Frida Probe",
+                "available": False,
+                "detail": "unavailable (missing frida)",
+            },
+            {
+                "key": "real_frida_inject",
+                "label": "Frida Inject",
+                "available": False,
+                "detail": "unavailable (missing frida)",
+            },
+            {
+                "key": "real_frida_session",
+                "label": "Frida Session",
+                "available": True,
+                "detail": "ready",
+            },
+        ],
     }

@@ -8,6 +8,7 @@ import { ReportsPanel } from "../components/workspace/ReportsPanel";
 import { StaticBriefPanel } from "../components/workspace/StaticBriefPanel";
 import {
   exportReport,
+  getEnvironmentStatus,
   getWorkspaceDetail,
   getWorkspaceMethods,
   getWorkspaceRecommendations,
@@ -16,6 +17,8 @@ import {
 } from "../lib/api";
 import type {
   ExecutionStartResponse,
+  EnvironmentPresetStatus,
+  EnvironmentToolStatus,
   HookRecommendationSummary,
   ReportExportResponse,
   WorkspaceDetailResponse,
@@ -47,6 +50,12 @@ export function CaseWorkspacePage(): JSX.Element {
   const [openJadxMessage, setOpenJadxMessage] = useState<string | null>(null);
   const [openJadxError, setOpenJadxError] = useState<string | null>(null);
   const [events, setEvents] = useState<WorkspaceEvent[]>([]);
+  const [environmentSummary, setEnvironmentSummary] = useState<string | null>(null);
+  const [recommendedExecutionMode, setRecommendedExecutionMode] = useState<string | null>(null);
+  const [executionPresets, setExecutionPresets] = useState<EnvironmentPresetStatus[]>([]);
+  const [environmentTools, setEnvironmentTools] = useState<EnvironmentToolStatus[]>([]);
+  const [isLoadingEnvironment, setIsLoadingEnvironment] = useState(Boolean(caseId));
+  const [environmentError, setEnvironmentError] = useState<string | null>(null);
   const [executionResponse, setExecutionResponse] = useState<ExecutionStartResponse | null>(null);
   const [reportResponse, setReportResponse] = useState<ReportExportResponse | null>(null);
   const [isStartingExecution, setIsStartingExecution] = useState(false);
@@ -71,6 +80,12 @@ export function CaseWorkspacePage(): JSX.Element {
       setOpenJadxMessage(null);
       setOpenJadxError(null);
       setEvents([]);
+      setEnvironmentSummary(null);
+      setRecommendedExecutionMode(null);
+      setExecutionPresets([]);
+      setEnvironmentTools([]);
+      setIsLoadingEnvironment(false);
+      setEnvironmentError(null);
       setExecutionResponse(null);
       setReportResponse(null);
       return;
@@ -90,6 +105,12 @@ export function CaseWorkspacePage(): JSX.Element {
     setOpenJadxMessage(null);
     setOpenJadxError(null);
     setEvents([]);
+    setEnvironmentSummary(null);
+    setRecommendedExecutionMode(null);
+    setExecutionPresets([]);
+    setEnvironmentTools([]);
+    setIsLoadingEnvironment(true);
+    setEnvironmentError(null);
     setExecutionResponse(null);
     setReportResponse(null);
 
@@ -110,6 +131,52 @@ export function CaseWorkspacePage(): JSX.Element {
       .finally(() => {
         if (active) {
           setIsLoadingDetail(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [caseId]);
+
+  useEffect(() => {
+    if (!caseId) {
+      setEnvironmentSummary(null);
+      setRecommendedExecutionMode(null);
+      setExecutionPresets([]);
+      setEnvironmentTools([]);
+      setIsLoadingEnvironment(false);
+      setEnvironmentError(null);
+      return;
+    }
+
+    let active = true;
+    setIsLoadingEnvironment(true);
+    setEnvironmentError(null);
+
+    void getEnvironmentStatus()
+      .then((response) => {
+        if (!active) {
+          return;
+        }
+        setEnvironmentSummary(response.summary);
+        setRecommendedExecutionMode(response.recommended_execution_mode);
+        setExecutionPresets(response.execution_presets);
+        setEnvironmentTools(response.tools);
+      })
+      .catch(() => {
+        if (!active) {
+          return;
+        }
+        setEnvironmentSummary(null);
+        setRecommendedExecutionMode(null);
+        setExecutionPresets([]);
+        setEnvironmentTools([]);
+        setEnvironmentError("执行环境暂时不可用，请稍后重试。");
+      })
+      .finally(() => {
+        if (active) {
+          setIsLoadingEnvironment(false);
         }
       });
 
@@ -350,13 +417,19 @@ export function CaseWorkspacePage(): JSX.Element {
         searchValue={searchValue}
       />
       <ExecutionConsolePanel
+        environmentError={environmentError}
+        environmentSummary={environmentSummary}
+        executionPresets={executionPresets}
         events={events}
+        isLoadingEnvironment={isLoadingEnvironment}
         isStarting={isStartingExecution}
         onStart={() => {
           void handleStartExecution();
         }}
+        recommendedExecutionMode={recommendedExecutionMode}
         startDisabled={!caseId || isStartingExecution}
         statusText={executionStatusText}
+        tools={environmentTools}
       />
       <EvidencePanel caseId={caseId ?? null} latestEvent={latestEvent} workspace={workspaceSummary} />
       <ReportsPanel

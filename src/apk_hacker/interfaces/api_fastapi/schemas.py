@@ -148,3 +148,30 @@ class HealthResponse(BaseModel):
     status: str
     service: str
     default_workspace_root: str
+
+
+class ToolStatusResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    label: str
+    available: bool
+    path: str | None = None
+
+
+class ExecutionPresetStatusResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: str
+    label: str
+    available: bool
+    detail: str
+
+
+class EnvironmentResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    summary: str
+    recommended_execution_mode: str | None = None
+    tools: list[ToolStatusResponse] = Field(default_factory=list)
+    execution_presets: list[ExecutionPresetStatusResponse] = Field(default_factory=list)

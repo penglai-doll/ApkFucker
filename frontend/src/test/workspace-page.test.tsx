@@ -7,6 +7,7 @@ import { createMemoryRouter, MemoryRouter, Route, RouterProvider, Routes } from 
 import { CaseWorkspacePage } from "../pages/CaseWorkspacePage";
 import {
   exportReport,
+  getEnvironmentStatus,
   getWorkspaceDetail,
   getWorkspaceMethods,
   getWorkspaceRecommendations,
@@ -17,6 +18,7 @@ import { connectWorkspaceEvents } from "../lib/ws";
 
 vi.mock("../lib/api", () => ({
   exportReport: vi.fn(),
+  getEnvironmentStatus: vi.fn(),
   getWorkspaceDetail: vi.fn(),
   getWorkspaceMethods: vi.fn(),
   getWorkspaceRecommendations: vi.fn(),
@@ -31,6 +33,7 @@ vi.mock("../lib/ws", () => ({
 describe("CaseWorkspacePage", () => {
   beforeEach(() => {
     vi.mocked(exportReport).mockReset();
+    vi.mocked(getEnvironmentStatus).mockReset();
     vi.mocked(getWorkspaceDetail).mockReset();
     vi.mocked(getWorkspaceMethods).mockReset();
     vi.mocked(getWorkspaceRecommendations).mockReset();
@@ -47,6 +50,40 @@ describe("CaseWorkspacePage", () => {
       return {
         close: vi.fn(),
       };
+    });
+    vi.mocked(getEnvironmentStatus).mockResolvedValue({
+      summary: "4 available, 2 missing",
+      recommended_execution_mode: "real_frida_session",
+      tools: [
+        { name: "jadx", label: "jadx", available: true, path: "/usr/bin/jadx" },
+        { name: "jadx-gui", label: "jadx-gui", available: true, path: "/usr/bin/jadx-gui" },
+        { name: "apktool", label: "apktool", available: false, path: null },
+        { name: "adb", label: "adb", available: true, path: "/usr/bin/adb" },
+        { name: "frida", label: "frida", available: false, path: null },
+        { name: "python-frida", label: "python-frida", available: true, path: "module:frida" },
+      ],
+      execution_presets: [
+        { key: "fake_backend", label: "Fake Backend", available: true, detail: "ready" },
+        {
+          key: "real_device",
+          label: "Real Device",
+          available: true,
+          detail: "ready (Frida Session)",
+        },
+        { key: "real_adb_probe", label: "ADB Probe", available: true, detail: "ready" },
+        {
+          key: "real_frida_probe",
+          label: "Frida Probe",
+          available: false,
+          detail: "unavailable (missing frida)",
+        },
+        {
+          key: "real_frida_session",
+          label: "Frida Session",
+          available: true,
+          detail: "ready",
+        },
+      ],
     });
   });
 
@@ -170,6 +207,11 @@ describe("CaseWorkspacePage", () => {
     expect(screen.getByRole("heading", { name: "证据中心" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "报告与导出" })).toBeInTheDocument();
     expect(screen.getByText("执行已启动")).toBeInTheDocument();
+    expect(screen.getByText("环境概览：已就绪 4 项，缺失 2 项")).toBeInTheDocument();
+    expect(screen.getByText("推荐预设：Frida 会话")).toBeInTheDocument();
+    expect(screen.getByText("真实设备：就绪（Frida 会话）")).toBeInTheDocument();
+    expect(screen.getByText("Frida 会话：就绪")).toBeInTheDocument();
+    expect(screen.getByText("Frida 探测：不可用（缺少 frida）")).toBeInTheDocument();
 
     expect(screen.getByRole("textbox", { name: "搜索方法" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "搜索方法" })).toBeInTheDocument();
@@ -189,6 +231,7 @@ describe("CaseWorkspacePage", () => {
     expect(screen.getByText((content) => content.includes("cipher_monitor.js"))).toBeInTheDocument();
 
     expect(vi.mocked(getWorkspaceDetail)).toHaveBeenCalledWith("case-001");
+    expect(vi.mocked(getEnvironmentStatus)).toHaveBeenCalledTimes(1);
     expect(vi.mocked(getWorkspaceMethods)).toHaveBeenCalledWith("case-001", { query: "", limit: 12 });
     expect(vi.mocked(getWorkspaceRecommendations)).toHaveBeenCalledWith("case-001", { limit: 6 });
     expect(vi.mocked(connectWorkspaceEvents)).toHaveBeenCalled();
@@ -289,6 +332,39 @@ describe("CaseWorkspacePage", () => {
     );
 
     expect(await screen.findByRole("alert")).toHaveTextContent("案件工作台暂时不可用。");
+  });
+
+  it("shows a Chinese execution environment fallback when environment inspection fails", async () => {
+    vi.mocked(getEnvironmentStatus).mockRejectedValue(new Error("no tools"));
+    vi.mocked(getWorkspaceDetail).mockResolvedValue({
+      case_id: "case-err",
+      title: "环境错误样本",
+      package_name: "com.example.err",
+      technical_tags: [],
+      dangerous_permissions: [],
+      callback_endpoints: [],
+      callback_clues: [],
+      crypto_signals: [],
+      packer_hints: [],
+      limitations: [],
+      custom_scripts: [],
+      can_open_in_jadx: false,
+      has_method_index: false,
+      method_count: 0,
+    });
+    vi.mocked(getWorkspaceMethods).mockResolvedValue({ items: [], total: 0 });
+    vi.mocked(getWorkspaceRecommendations).mockResolvedValue({ items: [] });
+
+    render(
+      <MemoryRouter initialEntries={["/workspace/case-err"]}>
+        <Routes>
+          <Route path="/workspace/:caseId" element={<CaseWorkspacePage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("当前案件：环境错误样本")).toBeInTheDocument();
+    expect(screen.getByText("执行环境暂时不可用，请稍后重试。")).toBeInTheDocument();
   });
 
   it("starts an execution and exports a report from the workspace page", async () => {

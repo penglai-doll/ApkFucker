@@ -7,6 +7,7 @@ from fastapi import FastAPI, WebSocket
 
 from apk_hacker.application.services.case_queue_service import CaseQueueService
 from apk_hacker.application.services.custom_script_service import CustomScriptService
+from apk_hacker.application.services.environment_service import EnvironmentService
 from apk_hacker.application.services.job_service import JobService, SupportsStaticAnalyze
 from apk_hacker.application.services.workspace_inspection_service import WorkspaceInspectionService
 from apk_hacker.application.services.workspace_registry_service import default_workspace_registry_path
@@ -27,6 +28,7 @@ def build_app(
     registry_path: Path | None = None,
     static_analyzer: SupportsStaticAnalyze | None = None,
     custom_scripts_root: Path | None = None,
+    environment_service: EnvironmentService | None = None,
     jadx_gui_resolver: Callable[[str | None], str | None] | None = None,
     jadx_opener: Callable[[str, Path], object] | None = None,
 ) -> FastAPI:
@@ -39,6 +41,7 @@ def build_app(
     scripts_root = custom_scripts_root or workspace_root.parent / "custom-scripts"
     custom_script_service = CustomScriptService(scripts_root)
     job_service = JobService(static_analyzer=static_analyzer) if static_analyzer is not None else JobService()
+    resolved_environment_service = environment_service or EnvironmentService()
     inspection_service = WorkspaceInspectionService(
         registry_service=registry_service,
         default_workspace_root=workspace_root,
@@ -86,6 +89,7 @@ def build_app(
     )
     app.include_router(
         build_settings_router(
+            environment_service=resolved_environment_service,
             registry_service=registry_service,
             default_workspace_root=workspace_root,
         )

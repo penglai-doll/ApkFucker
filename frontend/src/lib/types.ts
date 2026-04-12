@@ -105,6 +105,27 @@ export type ApiHealth = {
   default_workspace_root: string;
 };
 
+export type EnvironmentToolStatus = {
+  name: string;
+  label: string;
+  available: boolean;
+  path: string | null;
+};
+
+export type EnvironmentPresetStatus = {
+  key: string;
+  label: string;
+  available: boolean;
+  detail: string;
+};
+
+export type EnvironmentStatus = {
+  summary: string;
+  recommended_execution_mode: string | null;
+  tools: EnvironmentToolStatus[];
+  execution_presets: EnvironmentPresetStatus[];
+};
+
 export type ExecutionStartResponse = {
   case_id: string;
   status: string;
