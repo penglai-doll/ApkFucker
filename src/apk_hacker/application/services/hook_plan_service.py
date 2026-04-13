@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from uuid import uuid4
+from hashlib import sha1
 
 from apk_hacker.application.plugins.builtin.method_hook import MethodHookPlugin
 from apk_hacker.domain.models.hook_plan import HookPlan, HookPlanItem, HookPlanSource, MethodHookTarget
@@ -49,8 +49,10 @@ class HookPlanService:
             method.method_name,
             method.parameter_types,
         )
+        source_id = HookPlanSource.from_method(method).source_id
+        item_id = self._stable_item_id(source_id)
         target = MethodHookTarget(
-            target_id=str(uuid4()),
+            target_id=item_id,
             class_name=method.class_name,
             method_name=method.method_name,
             parameter_types=method.parameter_types,
@@ -58,7 +60,7 @@ class HookPlanService:
             source_origin="method_index",
         )
         return HookPlanItem(
-            item_id=str(uuid4()),
+            item_id=item_id,
             kind=script.kind,
             enabled=True,
             inject_order=inject_order,
@@ -69,8 +71,10 @@ class HookPlanService:
 
     @staticmethod
     def _build_custom_script_item(script_name: str, script_path: str, inject_order: int) -> HookPlanItem:
+        source_id = HookPlanSource.from_custom_script(script_name, script_path).source_id
+        item_id = HookPlanService._stable_item_id(source_id)
         return HookPlanItem(
-            item_id=str(uuid4()),
+            item_id=item_id,
             kind="custom_script",
             enabled=True,
             inject_order=inject_order,
@@ -84,8 +88,10 @@ class HookPlanService:
 
     @staticmethod
     def _build_template_item(template_id: str, template_name: str, plugin_id: str, inject_order: int) -> HookPlanItem:
+        source_id = HookPlanSource.from_template(template_id, template_name, plugin_id).source_id
+        item_id = HookPlanService._stable_item_id(source_id)
         return HookPlanItem(
-            item_id=str(uuid4()),
+            item_id=item_id,
             kind="template_hook",
             enabled=True,
             inject_order=inject_order,
@@ -96,3 +102,8 @@ class HookPlanService:
             },
             plugin_id=plugin_id,
         )
+
+    @staticmethod
+    def _stable_item_id(source_id: str) -> str:
+        digest = sha1(source_id.encode("utf-8"), usedforsecurity=False).hexdigest()
+        return f"hook-{digest}"

@@ -1,9 +1,14 @@
 from pathlib import Path
+from hashlib import sha1
 
 from apk_hacker.application.services.custom_script_service import CustomScriptService
 from apk_hacker.application.services.hook_plan_service import HookPlanService
 from apk_hacker.domain.models.hook_plan import HookPlanSource
 from apk_hacker.domain.models.indexes import MethodIndexEntry
+
+
+def _stable_item_id(source_id: str) -> str:
+    return f"hook-{sha1(source_id.encode('utf-8')).hexdigest()}"
 
 
 def test_hook_plan_service_turns_method_selection_into_plan_item() -> None:
@@ -37,6 +42,10 @@ def test_hook_plan_service_turns_method_selection_into_plan_item() -> None:
     assert [item.inject_order for item in result.items] == [1, 2]
     assert result.items[0].target is not None
     assert result.items[0].target.class_name == "com.demo.net.Config"
+    assert result.items[0].item_id == _stable_item_id(
+        "method:com.demo.net.Config:buildUploadUrl:String:tests/fixtures/jadx_sources/com/demo/net/Config.java"
+    )
+    assert result.items[0].target.target_id == result.items[0].item_id
     assert result.items[0].plugin_id == "builtin.method-hook"
     assert result.items[0].render_context["methodName"] == "buildUploadUrl"
     assert result.items[0].render_context["paramTypes"] == ["String"]
@@ -87,6 +96,7 @@ def test_hook_plan_service_combines_methods_and_custom_scripts(tmp_path: Path) -
 
     assert [item.kind for item in result.items] == ["custom_script", "method_hook"]
     assert [item.inject_order for item in result.items] == [1, 2]
+    assert result.items[0].item_id == _stable_item_id(f"custom_script:{script_path}")
     assert result.items[0].plugin_id == "custom.local-script"
     assert result.items[0].render_context == {
         "script_name": "trace_login",
@@ -109,6 +119,7 @@ def test_hook_plan_service_builds_template_hook_items() -> None:
     assert len(result.items) == 1
     assert result.items[0].kind == "template_hook"
     assert result.items[0].inject_order == 1
+    assert result.items[0].item_id == _stable_item_id("template:builtin.ssl-okhttp3-unpin:ssl.okhttp3_unpin")
     assert result.items[0].target is None
     assert result.items[0].plugin_id == "builtin.ssl-okhttp3-unpin"
     assert result.items[0].render_context == {

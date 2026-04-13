@@ -5,10 +5,38 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from apk_hacker.static_engine.analyzer import StaticArtifacts
 from apk_hacker.application.services.environment_service import EnvironmentService
 from apk_hacker.application.services.workspace_registry_service import WorkspaceRegistry
 from apk_hacker.application.services.workspace_registry_service import WorkspaceRegistryService
 from apk_hacker.interfaces.api_fastapi.app import build_app
+
+
+class _FakeStaticAnalyzer:
+    def __init__(self, artifacts: StaticArtifacts) -> None:
+        self.artifacts = artifacts
+
+    def analyze(self, target_path: Path, output_dir: Path | None = None, mode: str = "auto") -> StaticArtifacts:
+        del target_path, output_dir, mode
+        return self.artifacts
+
+
+def _build_app(tmp_path: Path) -> TestClient:
+    fixture_root = Path("tests/fixtures/static_outputs").resolve()
+    jadx_sources = Path("tests/fixtures/jadx_sources").resolve()
+    fake_analyzer = _FakeStaticAnalyzer(
+        StaticArtifacts(
+            output_root=tmp_path / "artifacts",
+            report_dir=tmp_path / "artifacts" / "报告" / "sample",
+            cache_dir=tmp_path / "artifacts" / "cache" / "sample",
+            analysis_json=fixture_root / "sample_analysis.json",
+            callback_config_json=fixture_root / "sample_callback-config.json",
+            noise_log_json=tmp_path / "artifacts" / "cache" / "sample" / "noise-log.json",
+            jadx_sources_dir=jadx_sources,
+            jadx_project_dir=None,
+        )
+    )
+    return TestClient(build_app(default_workspace_root=tmp_path / "workspaces", static_analyzer=fake_analyzer))
 
 
 def test_websocket_pings_pong() -> None:
@@ -47,6 +75,9 @@ def test_start_execution_returns_started_and_broadcasts_websocket_event(tmp_path
     workspace_root = tmp_path / "workspaces"
     case_root = workspace_root / "case-123"
     case_root.mkdir(parents=True)
+    sample_root = case_root / "sample"
+    sample_root.mkdir(parents=True)
+    (sample_root / "original.apk").write_bytes(b"apk")
     (case_root / "workspace.json").write_text(
         json.dumps(
             {
@@ -62,27 +93,48 @@ def test_start_execution_returns_started_and_broadcasts_websocket_event(tmp_path
         ),
         encoding="utf-8",
     )
-    client = TestClient(build_app(default_workspace_root=workspace_root))
+    client = _build_app(tmp_path)
+
+    method_response = client.get(
+        "/api/cases/case-123/workspace/methods",
+        params={"query": "upload", "limit": 1},
+    )
+    method = method_response.json()["items"][0]
+    assert client.post("/api/cases/case-123/hook-plan/methods", json=method).status_code == 200
 
     with client.websocket_connect("/ws") as websocket:
         response = client.post(
             "/api/cases/case-123/executions",
-            json={"execution_mode": "real_frida_session"},
+            json={"execution_mode": "fake_backend"},
         )
-        assert response.status_code == 202
-        assert response.json() == {
-            "case_id": "case-123",
-            "status": "started",
-            "execution_mode": "real_frida_session",
-        }
-        event = websocket.receive_json()
+        payload = response.json()
+        started_event = websocket.receive_json()
+        completed_event = websocket.receive_json()
 
-    assert event == {
+    assert response.status_code == 200
+    assert payload["case_id"] == "case-123"
+    assert payload["status"] == "completed"
+    assert payload["execution_mode"] == "fake_backend"
+    assert payload["event_count"] > 0
+    assert payload["db_path"].endswith(".sqlite3")
+    assert Path(payload["db_path"]).exists()
+    assert payload["bundle_path"]
+    assert Path(payload["bundle_path"]).exists()
+    assert payload["executed_backend_label"] == "Fake Backend"
+    runtime_state = json.loads((case_root / "workspace-runtime.json").read_text(encoding="utf-8"))
+    assert runtime_state["last_execution_run_id"] == payload["run_id"]
+    assert runtime_state["last_execution_result_path"] == payload["bundle_path"]
+    assert runtime_state["last_execution_db_path"] == payload["db_path"]
+    assert started_event == {
         "type": "execution.started",
         "case_id": "case-123",
         "status": "started",
-        "execution_mode": "real_frida_session",
+        "execution_mode": "fake_backend",
     }
+    assert completed_event["type"] == "execution.completed"
+    assert completed_event["case_id"] == "case-123"
+    assert completed_event["status"] == "completed"
+    assert completed_event["event_count"] == payload["event_count"]
 
 
 def test_get_startup_uses_registry_and_workspace_metadata(tmp_path: Path) -> None:

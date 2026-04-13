@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -465,3 +466,102 @@ def test_open_jadx_returns_409_when_launcher_is_unavailable(tmp_path: Path) -> N
     assert response.status_code == 409
     assert response.json()["detail"] == "jadx-gui is not configured or not available"
     assert launcher.open_calls == []
+
+
+def test_hook_plan_api_persists_sources_and_renders_plan_preview(tmp_path: Path) -> None:
+    sample = tmp_path / "hook-plan-demo.apk"
+    sample.write_bytes(b"apk")
+    workspace_root = tmp_path / "workspaces"
+    scripts_root = tmp_path / "scripts"
+    scripts_root.mkdir()
+    static_analyzer = _make_static_analyzer(
+        tmp_path=tmp_path,
+        jadx_sources_dir=Path("tests/fixtures/jadx_sources").resolve(),
+    )
+    client = TestClient(
+        build_app(
+            default_workspace_root=workspace_root,
+            static_analyzer=static_analyzer,
+            custom_scripts_root=scripts_root,
+        )
+    )
+
+    create_response = client.post(
+        "/api/cases/import",
+        json={
+            "sample_path": str(sample),
+            "workspace_root": str(workspace_root),
+            "title": "Hook Plan 案件",
+        },
+    )
+    case_id = create_response.json()["case_id"]
+    case_root = Path(create_response.json()["workspace_root"])
+    sample_root = case_root / "sample"
+    sample_root.mkdir(parents=True, exist_ok=True)
+    (sample_root / "original.apk").write_bytes(b"apk")
+
+    method_response = client.get(
+        f"/api/cases/{case_id}/workspace/methods",
+        params={"query": "upload", "limit": 1},
+    )
+    method = method_response.json()["items"][0]
+    add_method_response = client.post(
+        f"/api/cases/{case_id}/hook-plan/methods",
+        json=method,
+    )
+    assert add_method_response.status_code == 200
+
+    recommendation_response = client.get(
+        f"/api/cases/{case_id}/workspace/recommendations",
+        params={"limit": 8},
+    )
+    recommendation_items = recommendation_response.json()["items"]
+    recommendation_id = next(
+        (
+            item["recommendation_id"]
+            for item in recommendation_items
+            if item["kind"] != "method_hook"
+            or item.get("method", {}).get("method_name") != method["method_name"]
+        ),
+        recommendation_items[0]["recommendation_id"],
+    )
+    add_recommendation_response = client.post(
+        f"/api/cases/{case_id}/hook-plan/recommendations",
+        json={"recommendation_id": recommendation_id},
+    )
+    assert add_recommendation_response.status_code == 200
+
+    script_save_response = client.post(
+        f"/api/cases/{case_id}/custom-scripts",
+        json={"name": "trace_login", "content": "send('trace');\n"},
+    )
+    assert script_save_response.status_code == 200
+    scripts_response = client.get(f"/api/cases/{case_id}/custom-scripts")
+    script_id = scripts_response.json()["items"][0]["script_id"]
+    add_script_response = client.post(
+        f"/api/cases/{case_id}/hook-plan/custom-scripts",
+        json={"script_id": script_id},
+    )
+    assert add_script_response.status_code == 200
+
+    hook_plan_response = client.get(f"/api/cases/{case_id}/hook-plan")
+    assert hook_plan_response.status_code == 200
+    payload = hook_plan_response.json()
+    assert payload["case_id"] == case_id
+    assert payload["updated_at"]
+    assert len(payload["items"]) == 3
+    assert all("rendered_script" in item["render_context"] for item in payload["items"])
+    runtime_state_path = case_root / "workspace-runtime.json"
+    runtime_state = json.loads(runtime_state_path.read_text(encoding="utf-8"))
+    assert runtime_state["case_id"] == case_id
+    assert len(runtime_state["selected_hook_sources"]) == 3
+    assert len(runtime_state["rendered_hook_plan"]["items"]) == 3
+
+    first_item_id = payload["items"][0]["item_id"]
+    remove_response = client.delete(f"/api/cases/{case_id}/hook-plan/items/{first_item_id}")
+    assert remove_response.status_code == 200
+    assert len(remove_response.json()["items"]) == 2
+
+    clear_response = client.delete(f"/api/cases/{case_id}/hook-plan")
+    assert clear_response.status_code == 200
+    assert clear_response.json()["items"] == []

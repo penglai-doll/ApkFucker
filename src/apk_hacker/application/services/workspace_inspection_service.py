@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from dataclasses import replace
 import json
 from pathlib import Path
 from typing import Protocol
@@ -128,7 +129,13 @@ class WorkspaceInspectionService:
         self._cache: dict[str, WorkspaceInspectionRecord] = {}
 
     def get_detail(self, case_id: str) -> WorkspaceInspectionRecord:
-        return self._load_case(case_id)
+        record = self._load_case(case_id)
+        custom_scripts = self._custom_script_service.discover_records()
+        if record.custom_scripts == custom_scripts:
+            return record
+        refreshed = replace(record, custom_scripts=custom_scripts)
+        self._cache[case_id] = refreshed
+        return refreshed
 
     def search_methods(self, case_id: str, *, query: str = "", limit: int = 50) -> tuple[tuple[MethodIndexEntry, ...], int]:
         record = self._load_case(case_id)

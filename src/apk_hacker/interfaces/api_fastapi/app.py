@@ -8,7 +8,10 @@ from fastapi import FastAPI, WebSocket
 from apk_hacker.application.services.case_queue_service import CaseQueueService
 from apk_hacker.application.services.custom_script_service import CustomScriptService
 from apk_hacker.application.services.environment_service import EnvironmentService
+from apk_hacker.application.services.hook_plan_service import HookPlanService
 from apk_hacker.application.services.job_service import JobService, SupportsStaticAnalyze
+from apk_hacker.application.services.report_export_service import ReportExportService
+from apk_hacker.application.services.workspace_runtime_service import WorkspaceRuntimeService
 from apk_hacker.application.services.workspace_inspection_service import WorkspaceInspectionService
 from apk_hacker.application.services.workspace_registry_service import default_workspace_registry_path
 from apk_hacker.application.services.workspace_registry_service import WorkspaceRegistryService
@@ -42,6 +45,8 @@ def build_app(
     custom_script_service = CustomScriptService(scripts_root)
     job_service = JobService(static_analyzer=static_analyzer) if static_analyzer is not None else JobService()
     resolved_environment_service = environment_service or EnvironmentService()
+    hook_plan_service = HookPlanService()
+    report_export_service = ReportExportService()
     inspection_service = WorkspaceInspectionService(
         registry_service=registry_service,
         default_workspace_root=workspace_root,
@@ -50,6 +55,15 @@ def build_app(
         custom_script_service=custom_script_service,
         jadx_gui_resolver=jadx_gui_resolver or resolve_jadx_gui_path,
         jadx_opener=jadx_opener or open_in_jadx,
+    )
+    runtime_service = WorkspaceRuntimeService(
+        registry_service=registry_service,
+        default_workspace_root=workspace_root,
+        inspection_service=inspection_service,
+        custom_script_service=custom_script_service,
+        hook_plan_service=hook_plan_service,
+        report_export_service=report_export_service,
+        case_queue_service=queue_service,
     )
 
     app = FastAPI(
@@ -71,20 +85,18 @@ def build_app(
             default_workspace_root=workspace_root,
             case_queue_service=queue_service,
             workspace_inspection_service=inspection_service,
+            workspace_runtime_service=runtime_service,
         )
     )
     app.include_router(
         build_execution_router(
             hub=hub,
-            registry_service=registry_service,
-            default_workspace_root=workspace_root,
-            case_queue_service=queue_service,
+            workspace_runtime_service=runtime_service,
         )
     )
     app.include_router(
         build_reports_router(
-            registry_service=registry_service,
-            default_workspace_root=workspace_root,
+            workspace_runtime_service=runtime_service,
         )
     )
     app.include_router(

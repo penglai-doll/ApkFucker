@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import re
-from uuid import uuid4
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,7 +22,7 @@ class CustomScriptService:
         for script_path in sorted(self._scripts_root.glob("*.js")):
             records.append(
                 CustomScriptRecord(
-                    script_id=str(uuid4()),
+                    script_id=f"custom_script:{script_path}",
                     name=script_path.stem,
                     script_path=script_path,
                 )
@@ -43,7 +42,7 @@ class CustomScriptService:
         script_path = self._scripts_root / f"{normalized_name}.js"
         script_path.write_text(content, encoding="utf-8")
         return CustomScriptRecord(
-            script_id=str(uuid4()),
+            script_id=f"custom_script:{script_path}",
             name=normalized_name,
             script_path=script_path,
         )
