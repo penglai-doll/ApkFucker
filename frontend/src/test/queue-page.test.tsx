@@ -129,7 +129,27 @@ describe("CaseQueuePage", () => {
     fireEvent.change(screen.getByLabelText("案件标题"), { target: { value: "导入案件" } });
     fireEvent.submit(screen.getByRole("button", { name: "导入样本" }).closest("form")!);
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("导入案件失败，请检查样本路径和工作目录。");
+    expect(await screen.findByRole("alert")).toHaveTextContent("导入案件失败：bad request");
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  it("surfaces the backend import failure detail to help local debugging", async () => {
+    vi.mocked(listCases).mockResolvedValue({ items: [] });
+    vi.mocked(importCase).mockRejectedValue(new Error("导入案件失败：Sample file not found"));
+
+    render(
+      <MemoryRouter>
+        <CaseQueuePage />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("工作目录")).toHaveValue("/tmp/workspaces"),
+    );
+    fireEvent.change(screen.getByLabelText("样本路径"), { target: { value: "/tmp/missing.apk" } });
+    fireEvent.submit(screen.getByRole("button", { name: "导入样本" }).closest("form")!);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("导入案件失败：Sample file not found");
     expect(navigateMock).not.toHaveBeenCalled();
   });
 

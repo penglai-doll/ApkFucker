@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from hashlib import sha1
 
 from apk_hacker.application.plugins.builtin.method_hook import MethodHookPlugin
@@ -16,7 +17,7 @@ class HookPlanService:
     def plan_for_methods(self, methods: list[MethodIndexEntry]) -> HookPlan:
         return self.plan_for_sources([HookPlanSource.from_method(method) for method in methods])
 
-    def plan_for_sources(self, sources: list[HookPlanSource]) -> HookPlan:
+    def plan_for_sources(self, sources: list[HookPlanSource], previous_plan: HookPlan | None = None) -> HookPlan:
         items: list[HookPlanItem] = []
         for inject_order, source in enumerate(sources, start=1):
             if source.method is not None:
@@ -41,7 +42,29 @@ class HookPlanService:
                     inject_order=inject_order,
                 )
             )
-        return self._renderer.render_plan(HookPlan(items=tuple(items)))
+        if previous_plan is not None:
+            previous_by_id = {item.item_id: item for item in previous_plan.items}
+            items = [
+                replace(
+                    item,
+                    enabled=previous_item.enabled,
+                    inject_order=previous_item.inject_order,
+                )
+                if (previous_item := previous_by_id.get(item.item_id)) is not None
+                else item
+                for item in items
+            ]
+            items = [
+                replace(item, inject_order=inject_order)
+                for inject_order, item in enumerate(
+                    sorted(items, key=lambda candidate: candidate.inject_order),
+                    start=1,
+                )
+            ]
+        return self.render_existing_plan(HookPlan(items=tuple(items)))
+
+    def render_existing_plan(self, plan: HookPlan) -> HookPlan:
+        return self._renderer.render_plan(plan)
 
     def _build_method_item(self, method: MethodIndexEntry, inject_order: int) -> HookPlanItem:
         script = self._method_hook.build(

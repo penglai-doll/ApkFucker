@@ -59,3 +59,21 @@ export async function pickWorkspaceDirectory(): Promise<string | null> {
     directory: true,
   });
 }
+
+export async function pickHarFile(): Promise<string | null> {
+  return openNativeDialog({
+    directory: false,
+    filters: [
+      {
+        name: "HAR 抓包文件",
+        extensions: ["har"],
+      },
+    ],
+  });
+}
+
+export async function pickFridaServerBinary(): Promise<string | null> {
+  return openNativeDialog({
+    directory: false,
+  });
+}

@@ -1,6 +1,7 @@
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from apk_hacker.static_engine.analyzer import StaticAnalyzer, StaticArtifacts, build_output_layout
@@ -62,7 +63,10 @@ def test_static_analyzer_returns_static_artifacts_from_legacy_stdout(tmp_path: P
     }
     completed = Mock(returncode=0, stdout=json.dumps(payload), stderr="")
 
-    with patch("apk_hacker.static_engine.analyzer.subprocess.run", return_value=completed) as run_mock:
+    with patch("apk_hacker.static_engine.analyzer.shutil.which", return_value=None), patch(
+        "apk_hacker.static_engine.analyzer.subprocess.run",
+        return_value=completed,
+    ) as run_mock:
         artifacts = analyzer.analyze(target, output_dir=output_root)
 
     assert isinstance(artifacts, StaticArtifacts)
@@ -123,6 +127,43 @@ def test_static_analyzer_treats_missing_or_blank_jadx_sources_as_absent(tmp_path
 
     assert missing_artifacts.jadx_sources_dir is None
     assert blank_artifacts.jadx_sources_dir is None
+
+
+def test_static_analyzer_exports_jadx_sources_when_legacy_stdout_does_not_include_them(tmp_path: Path) -> None:
+    analyzer = StaticAnalyzer()
+    target = tmp_path / "sample.apk"
+    target.write_bytes(b"apk")
+    output_root = tmp_path / "artifacts"
+    jadx_root = output_root / "jadx"
+    payload = {
+        "output_root": str(output_root.resolve()),
+        "report_dir": str((output_root / "报告" / "sample").resolve()),
+        "cache_dir": str((output_root / "cache" / "sample").resolve()),
+        "artifacts": {
+            "analysis_json": str((output_root / "cache" / "sample" / "analysis.json").resolve()),
+            "callback_config_json": str((output_root / "cache" / "sample" / "callback-config.json").resolve()),
+            "noise_log_json": str((output_root / "cache" / "sample" / "noise-log.json").resolve()),
+        },
+    }
+
+    legacy_completed = Mock(returncode=0, stdout=json.dumps(payload), stderr="")
+
+    def run_side_effect(command: list[object], capture_output: bool, text: bool, check: bool):  # type: ignore[override]
+        if Path(command[1]).name == "investigate_android_app.py":
+            return legacy_completed
+        (jadx_root / "sources").mkdir(parents=True, exist_ok=True)
+        (jadx_root / "resources").mkdir(parents=True, exist_ok=True)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    with patch("apk_hacker.static_engine.analyzer.shutil.which", return_value="/usr/local/bin/jadx"), patch(
+        "apk_hacker.static_engine.analyzer.subprocess.run",
+        side_effect=run_side_effect,
+    ) as run_mock:
+        artifacts = analyzer.analyze(target, output_dir=output_root)
+
+    assert artifacts.jadx_sources_dir == (jadx_root / "sources").resolve()
+    assert artifacts.jadx_project_dir == jadx_root.resolve()
+    assert run_mock.call_count == 2
 
 
 def test_static_analyzer_raises_for_nonzero_exit(tmp_path: Path) -> None:

@@ -10,7 +10,6 @@ requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.115,<1",
   "Jinja2>=3.1,<4",
-  "PyQt6>=6.7,<7",
   "uvicorn>=0.32,<1",
 ]
 
@@ -18,13 +17,15 @@ dependencies = [
 dev = [
   "httpx>=0.27,<1",
   "pytest>=8,<9",
-  "pytest-qt>=4.4,<5",
 ]
 
 [project.scripts]
-apk-hacker = "apk_hacker.interfaces.gui_pyqt.main:main"
+apk-hacker = "apk_hacker.interfaces.api_fastapi.main:main"
+apk-hacker-api = "apk_hacker.interfaces.api_fastapi.main:main"
+apk-hacker-legacy = "apk_hacker.interfaces.gui_pyqt.main:main"
 apk-hacker-cli = "apk_hacker.interfaces.cli.main:main"
 apk-hacker-demo-real-backend = "apk_hacker.tools.demo_real_backend:main"
+apk-hacker-demo-live-capture = "apk_hacker.tools.demo_live_capture:main"
 apk-hacker-adb-probe-backend = "apk_hacker.tools.adb_probe_backend:main"
 apk-hacker-frida-bootstrap-backend = "apk_hacker.tools.frida_bootstrap_backend:main"
 apk-hacker-frida-probe-backend = "apk_hacker.tools.frida_probe_backend:main"
@@ -36,3 +37,14 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = [
+  "tests",
+  "src/apk_hacker/static_engine/legacy/tests",
+]
+norecursedirs = [
+  "src-tauri/target",
+  "node_modules",
+  "dist",
+]

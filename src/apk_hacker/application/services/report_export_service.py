@@ -31,6 +31,11 @@ class ExportableReport:
     traffic_capture: TrafficCapture | None
     last_execution_db_path: Path | None = None
     last_execution_bundle_path: Path | None = None
+    last_execution_status: str | None = None
+    last_execution_mode: str | None = None
+    last_executed_backend_key: str | None = None
+    last_execution_error_code: str | None = None
+    last_execution_error_message: str | None = None
 
 
 class ReportExportService:
@@ -114,9 +119,14 @@ class ReportExportService:
             [
                 "## Dynamic Execution",
                 "",
+                f"- Last Status: {report.last_execution_status or '-'}",
+                f"- Requested Mode: {report.last_execution_mode or '-'}",
+                f"- Executed Backend: {report.last_executed_backend_key or '-'}",
                 f"- Event Count: {len(report.hook_events)}",
                 f"- Last Run DB: {report.last_execution_db_path or '-'}",
                 f"- Execution Bundle: {report.last_execution_bundle_path or '-'}",
+                f"- Failure Code: {report.last_execution_error_code or '-'}",
+                f"- Failure Message: {report.last_execution_error_message or '-'}",
                 "",
             ]
         )
@@ -140,14 +150,32 @@ class ReportExportService:
         if report.traffic_capture is None:
             lines.extend(["- No HAR capture loaded.", ""])
         else:
+            traffic_summary = report.traffic_capture.summary
             lines.extend(
                 [
                     f"- Source: {report.traffic_capture.source_path}",
+                    f"- Provenance: {report.traffic_capture.provenance.label}",
                     f"- Flow Count: {report.traffic_capture.flow_count}",
                     f"- Suspicious Count: {report.traffic_capture.suspicious_count}",
+                    f"- HTTPS Flow Count: {traffic_summary.https_flow_count}",
+                    f"- Matched Indicator Count: {traffic_summary.matched_indicator_count}",
                     "",
                 ]
             )
+            if traffic_summary.top_hosts:
+                lines.extend(["### Top Hosts", ""])
+                for host in traffic_summary.top_hosts:
+                    lines.append(
+                        f"- {host.host}: {host.flow_count} flows, {host.suspicious_count} suspicious, {host.https_flow_count} HTTPS"
+                    )
+                lines.append("")
+            if traffic_summary.suspicious_hosts:
+                lines.extend(["### Suspicious Hosts", ""])
+                for host in traffic_summary.suspicious_hosts:
+                    lines.append(
+                        f"- {host.host}: {host.flow_count} flows, {host.suspicious_count} suspicious, {host.https_flow_count} HTTPS"
+                    )
+                lines.append("")
 
         if static_inputs is not None:
             lines.extend(["## Artifacts", ""])

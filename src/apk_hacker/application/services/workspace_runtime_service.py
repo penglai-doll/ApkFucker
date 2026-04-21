@@ -1,256 +1,278 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
-from hashlib import sha1
 import json
-import os
 from pathlib import Path
+from threading import Event
 
 from apk_hacker.application.services.case_queue_service import CaseQueueService
+from apk_hacker.application.services.execution_runtime import build_execution_backend_env
+from apk_hacker.application.services.execution_runtime import build_execution_backend
+from apk_hacker.application.services.execution_runtime import build_execution_runtime_availability
+from apk_hacker.application.services.execution_runtime import ExecutionRouting
+from apk_hacker.application.services.execution_runtime import resolve_execution_routing
+from apk_hacker.application.services.execution_presets import build_execution_preset_statuses
 from apk_hacker.application.services.execution_presets import label_for_preset
-from apk_hacker.application.services.custom_script_service import CustomScriptRecord, CustomScriptService
+from apk_hacker.application.services.device_inventory_service import DeviceInventoryService
+from apk_hacker.application.services.environment_service import EnvironmentService
+from apk_hacker.application.services.environment_service import resolve_ssl_hook_template
+from apk_hacker.application.services.custom_script_service import CustomScriptRecord
+from apk_hacker.application.services.custom_script_service import CustomScriptService
 from apk_hacker.application.services.hook_plan_service import HookPlanService
 from apk_hacker.application.services.report_export_service import ExportableReport, ReportExportService
+from apk_hacker.application.services.traffic_capture_service import build_traffic_capture_provenance
+from apk_hacker.application.services.traffic_capture_service import infer_traffic_capture_provenance_kind
+from apk_hacker.application.services.traffic_capture_service import LIVE_CAPTURE_PROVENANCE_KIND
+from apk_hacker.application.services.traffic_capture_service import MANUAL_HAR_PROVENANCE_KIND
+from apk_hacker.application.services.traffic_capture_service import TrafficCaptureService
+from apk_hacker.application.services.workspace_inspection_service import CaseNotFoundError
 from apk_hacker.application.services.workspace_inspection_service import WorkspaceInspectionRecord
 from apk_hacker.application.services.workspace_inspection_service import WorkspaceInspectionService
 from apk_hacker.application.services.workspace_registry_service import WorkspaceRegistryService
+from apk_hacker.application.services.workspace_runtime_state import build_default_runtime_state
+from apk_hacker.application.services.workspace_runtime_state import ExecutionHistoryEntry
+from apk_hacker.application.services.workspace_runtime_state import load_workspace_runtime_state
+from apk_hacker.application.services.workspace_runtime_state import normalize_path
+from apk_hacker.application.services.workspace_runtime_state import save_workspace_runtime_state
+from apk_hacker.application.services.workspace_runtime_state import WorkspaceRuntimeState
 from apk_hacker.domain.models.execution import ExecutionRequest
+from apk_hacker.domain.models.execution import ExecutionRuntimeOptions
 from apk_hacker.domain.models.hook_event import HookEvent
 from apk_hacker.domain.models.hook_plan import HookPlan
-from apk_hacker.domain.models.hook_plan import HookPlanItem
 from apk_hacker.domain.models.hook_plan import HookPlanSource
-from apk_hacker.domain.models.hook_plan import MethodHookTarget
-from apk_hacker.domain.models.indexes import MethodIndexEntry
-from apk_hacker.infrastructure.execution.fake_backend import FakeExecutionBackend
-from apk_hacker.infrastructure.execution.real_backend import RealExecutionBackend
+from apk_hacker.domain.models.traffic import TrafficCapture
+from apk_hacker.domain.models.traffic import TrafficCaptureSummary
+from apk_hacker.domain.models.traffic import TrafficCaptureProvenance
+from apk_hacker.domain.models.traffic import TrafficFlowSummary
+from apk_hacker.domain.models.traffic import TrafficHostSummary
+from apk_hacker.domain.models.traffic import TrafficLiveCaptureState
+from apk_hacker.infrastructure.execution.backend import ExecutionCancelled
 from apk_hacker.infrastructure.persistence.hook_log_store import HookLogStore
+
+
+def _build_runtime_env(runtime_options: ExecutionRuntimeOptions | None) -> dict[str, str]:
+    if runtime_options is None:
+        return {}
+
+    frida_server_binary = runtime_options.frida_server_binary_path.strip()
+    frida_server_remote_path = runtime_options.frida_server_remote_path.strip()
+    frida_session_seconds = runtime_options.frida_session_seconds.strip()
+    parsed_session_seconds: float | None = None
+    if frida_session_seconds:
+        parsed_session_seconds = float(frida_session_seconds)
+
+    return build_execution_backend_env(
+        device_serial=runtime_options.device_serial.strip() or None,
+        frida_server_binary=Path(frida_server_binary).expanduser() if frida_server_binary else None,
+        frida_server_remote_path=frida_server_remote_path or None,
+        frida_session_seconds=parsed_session_seconds,
+    )
+
+
+def _source_is_plannable(source: HookPlanSource) -> bool:
+    if source.method is not None:
+        return True
+    if source.kind == "template_hook" and source.template_id is not None and source.template_name is not None:
+        return True
+    return source.kind == "custom_script" and source.script_name is not None and source.script_path is not None
 
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
-
-def _normalize_path(value: object | None) -> Path | None:
-    if value is None:
-        return None
-    if isinstance(value, Path):
-        return value
-    if not isinstance(value, (str, bytes)):
-        return None
-    text = value.decode() if isinstance(value, bytes) else value
-    text = text.strip()
-    if not text:
-        return None
-    return Path(text)
-
-
-def _serialize_method(entry: MethodIndexEntry) -> dict[str, object]:
+def _serialize_traffic_capture(capture: TrafficCapture) -> dict[str, object]:
+    summary_payload = {
+        "https_flow_count": capture.https_flow_count,
+        "matched_indicator_count": capture.matched_indicator_count,
+        "top_hosts": [
+            {
+                "host": host.host,
+                "flow_count": host.flow_count,
+                "suspicious_count": host.suspicious_count,
+                "https_flow_count": host.https_flow_count,
+            }
+            for host in capture.top_hosts
+        ],
+        "suspicious_hosts": [
+            {
+                "host": host.host,
+                "flow_count": host.flow_count,
+                "suspicious_count": host.suspicious_count,
+                "https_flow_count": host.https_flow_count,
+            }
+            for host in capture.suspicious_hosts
+        ],
+    }
     return {
-        "class_name": entry.class_name,
-        "method_name": entry.method_name,
-        "parameter_types": list(entry.parameter_types),
-        "return_type": entry.return_type,
-        "is_constructor": entry.is_constructor,
-        "overload_count": entry.overload_count,
-        "source_path": entry.source_path,
-        "line_hint": entry.line_hint,
-        "tags": list(entry.tags),
-        "evidence": list(entry.evidence),
+        "source_path": str(capture.source_path),
+        "provenance": {
+            "kind": capture.provenance.kind,
+            "label": capture.provenance.label,
+        },
+        "flow_count": capture.flow_count,
+        "suspicious_count": capture.suspicious_count,
+        "https_flow_count": capture.https_flow_count,
+        "matched_indicator_count": capture.matched_indicator_count,
+        "top_hosts": summary_payload["top_hosts"],
+        "suspicious_hosts": summary_payload["suspicious_hosts"],
+        "summary": summary_payload,
+        "flows": [
+            {
+                "flow_id": flow.flow_id,
+                "method": flow.method,
+                "url": flow.url,
+                "status_code": flow.status_code,
+                "mime_type": flow.mime_type,
+                "request_preview": flow.request_preview,
+                "response_preview": flow.response_preview,
+                "matched_indicators": list(flow.matched_indicators),
+                "suspicious": flow.suspicious,
+            }
+            for flow in capture.flows
+        ],
     }
 
 
-def _deserialize_method(payload: object) -> MethodIndexEntry | None:
+def _deserialize_traffic_capture(payload: object) -> TrafficCapture | None:
     if not isinstance(payload, dict):
         return None
-    class_name = payload.get("class_name")
-    method_name = payload.get("method_name")
-    parameter_types = payload.get("parameter_types", [])
-    return_type = payload.get("return_type")
-    source_path = payload.get("source_path")
-    if not isinstance(class_name, str) or not isinstance(method_name, str):
+    source_path = normalize_path(payload.get("source_path"))
+    flow_count = payload.get("flow_count")
+    suspicious_count = payload.get("suspicious_count")
+    summary_payload = payload.get("summary")
+    https_flow_count = payload.get("https_flow_count")
+    matched_indicator_count = payload.get("matched_indicator_count")
+    top_hosts_payload = payload.get("top_hosts", [])
+    suspicious_hosts_payload = payload.get("suspicious_hosts", [])
+    flows_payload = payload.get("flows", [])
+    if source_path is None or not isinstance(flow_count, int) or not isinstance(suspicious_count, int):
         return None
-    if not isinstance(return_type, str) or not isinstance(source_path, str):
-        return None
-    if not isinstance(parameter_types, list):
-        parameter_types = []
-    tags = payload.get("tags", [])
-    evidence = payload.get("evidence", [])
-    return MethodIndexEntry(
-        class_name=class_name,
-        method_name=method_name,
-        parameter_types=tuple(str(value) for value in parameter_types),
-        return_type=return_type,
-        is_constructor=bool(payload.get("is_constructor", False)),
-        overload_count=int(payload.get("overload_count", 1)),
+    if isinstance(summary_payload, dict):
+        https_flow_count = summary_payload.get("https_flow_count", https_flow_count)
+        matched_indicator_count = summary_payload.get("matched_indicator_count", matched_indicator_count)
+        top_hosts_payload = summary_payload.get("top_hosts", top_hosts_payload)
+        suspicious_hosts_payload = summary_payload.get("suspicious_hosts", suspicious_hosts_payload)
+    if not isinstance(https_flow_count, int):
+        https_flow_count = 0
+    if not isinstance(matched_indicator_count, int):
+        matched_indicator_count = 0
+    provenance_payload = payload.get("provenance")
+    provenance: TrafficCaptureProvenance
+    if isinstance(provenance_payload, dict):
+        provenance_kind = provenance_payload.get("kind")
+        provenance_label = provenance_payload.get("label")
+        if isinstance(provenance_kind, str) and isinstance(provenance_label, str):
+            provenance = TrafficCaptureProvenance(kind=provenance_kind, label=provenance_label)
+        else:
+            provenance = build_traffic_capture_provenance(
+                infer_traffic_capture_provenance_kind(source_path),
+                source_path,
+            )
+    else:
+        provenance = build_traffic_capture_provenance(
+            infer_traffic_capture_provenance_kind(source_path),
+            source_path,
+        )
+    if not isinstance(flows_payload, list):
+        flows_payload = []
+    if not isinstance(top_hosts_payload, list):
+        top_hosts_payload = []
+    if not isinstance(suspicious_hosts_payload, list):
+        suspicious_hosts_payload = []
+    flows: list[TrafficFlowSummary] = []
+    def _deserialize_host_summary(item: object) -> TrafficHostSummary | None:
+        if not isinstance(item, dict):
+            return None
+        host = item.get("host")
+        flow_count_value = item.get("flow_count")
+        suspicious_count_value = item.get("suspicious_count")
+        https_flow_count_value = item.get("https_flow_count")
+        if not isinstance(host, str) or not isinstance(flow_count_value, int) or not isinstance(suspicious_count_value, int):
+            return None
+        if not isinstance(https_flow_count_value, int):
+            https_flow_count_value = 0
+        return TrafficHostSummary(
+            host=host,
+            flow_count=flow_count_value,
+            suspicious_count=suspicious_count_value,
+            https_flow_count=https_flow_count_value,
+        )
+
+    top_hosts = tuple(
+        host
+        for host in (_deserialize_host_summary(item) for item in top_hosts_payload)
+        if host is not None
+    )
+    suspicious_hosts = tuple(
+        host
+        for host in (_deserialize_host_summary(item) for item in suspicious_hosts_payload)
+        if host is not None
+    )
+    for flow in flows_payload:
+        if not isinstance(flow, dict):
+            continue
+        flow_id = flow.get("flow_id")
+        method = flow.get("method")
+        url = flow.get("url")
+        request_preview = flow.get("request_preview")
+        response_preview = flow.get("response_preview")
+        if not all(isinstance(value, str) for value in (flow_id, method, url, request_preview, response_preview)):
+            continue
+        matched_indicators = flow.get("matched_indicators", [])
+        if not isinstance(matched_indicators, list):
+            matched_indicators = []
+        status_code = flow.get("status_code")
+        mime_type = flow.get("mime_type")
+        flows.append(
+            TrafficFlowSummary(
+                flow_id=flow_id,
+                method=method,
+                url=url,
+                status_code=status_code if isinstance(status_code, int) else None,
+                mime_type=mime_type if isinstance(mime_type, str) else None,
+                request_preview=request_preview,
+                response_preview=response_preview,
+                matched_indicators=tuple(str(value) for value in matched_indicators),
+                suspicious=bool(flow.get("suspicious", False)),
+            )
+        )
+    return TrafficCapture(
         source_path=source_path,
-        line_hint=payload.get("line_hint"),
-        tags=tuple(str(value) for value in tags) if isinstance(tags, list) else (),
-        evidence=tuple(str(value) for value in evidence) if isinstance(evidence, list) else (),
+        provenance=provenance,
+        flow_count=flow_count,
+        suspicious_count=suspicious_count,
+        summary=TrafficCaptureSummary(
+            https_flow_count=https_flow_count,
+            matched_indicator_count=matched_indicator_count,
+            top_hosts=top_hosts,
+            suspicious_hosts=suspicious_hosts,
+        ),
+        flows=tuple(flows),
     )
-
-
-def _serialize_source(source: HookPlanSource) -> dict[str, object]:
-    payload: dict[str, object] = {
-        "source_id": source.source_id,
-        "kind": source.kind,
-    }
-    if source.method is not None:
-        payload["method"] = _serialize_method(source.method)
-    if source.script_name is not None:
-        payload["script_name"] = source.script_name
-    if source.script_path is not None:
-        payload["script_path"] = source.script_path
-    if source.template_id is not None:
-        payload["template_id"] = source.template_id
-    if source.template_name is not None:
-        payload["template_name"] = source.template_name
-    if source.plugin_id is not None:
-        payload["plugin_id"] = source.plugin_id
-    return payload
-
-
-def _deserialize_source(payload: object) -> HookPlanSource | None:
-    if not isinstance(payload, dict):
-        return None
-    source_id = payload.get("source_id")
-    kind = payload.get("kind")
-    if not isinstance(source_id, str) or not isinstance(kind, str):
-        return None
-    method = _deserialize_method(payload.get("method"))
-    script_name = payload.get("script_name")
-    script_path = payload.get("script_path")
-    template_id = payload.get("template_id")
-    template_name = payload.get("template_name")
-    plugin_id = payload.get("plugin_id")
-    return HookPlanSource(
-        source_id=source_id,
-        kind=kind,
-        method=method,
-        script_name=str(script_name) if isinstance(script_name, str) else None,
-        script_path=str(script_path) if isinstance(script_path, str) else None,
-        template_id=str(template_id) if isinstance(template_id, str) else None,
-        template_name=str(template_name) if isinstance(template_name, str) else None,
-        plugin_id=str(plugin_id) if isinstance(plugin_id, str) else None,
-    )
-
-
-def _serialize_target(target: MethodHookTarget) -> dict[str, object]:
-    return {
-        "target_id": target.target_id,
-        "class_name": target.class_name,
-        "method_name": target.method_name,
-        "parameter_types": list(target.parameter_types),
-        "return_type": target.return_type,
-        "source_origin": target.source_origin,
-        "notes": target.notes,
-    }
-
-
-def _deserialize_target(payload: object) -> MethodHookTarget | None:
-    if not isinstance(payload, dict):
-        return None
-    target_id = payload.get("target_id")
-    class_name = payload.get("class_name")
-    method_name = payload.get("method_name")
-    parameter_types = payload.get("parameter_types", [])
-    return_type = payload.get("return_type")
-    source_origin = payload.get("source_origin")
-    if not all(isinstance(value, str) for value in (target_id, class_name, method_name, return_type, source_origin)):
-        return None
-    if not isinstance(parameter_types, list):
-        parameter_types = []
-    return MethodHookTarget(
-        target_id=str(target_id),
-        class_name=str(class_name),
-        method_name=str(method_name),
-        parameter_types=tuple(str(value) for value in parameter_types),
-        return_type=str(return_type),
-        source_origin=str(source_origin),
-        notes=str(payload.get("notes", "")),
-    )
-
-
-def _serialize_plan_item(item: HookPlanItem) -> dict[str, object]:
-    return {
-        "item_id": item.item_id,
-        "kind": item.kind,
-        "enabled": item.enabled,
-        "inject_order": item.inject_order,
-        "target": _serialize_target(item.target) if item.target is not None else None,
-        "render_context": dict(item.render_context),
-        "plugin_id": item.plugin_id,
-    }
-
-
-def _deserialize_plan_item(payload: object) -> HookPlanItem | None:
-    if not isinstance(payload, dict):
-        return None
-    item_id = payload.get("item_id")
-    kind = payload.get("kind")
-    if not isinstance(item_id, str) or not isinstance(kind, str):
-        return None
-    render_context = payload.get("render_context", {})
-    if not isinstance(render_context, dict):
-        render_context = {}
-    return HookPlanItem(
-        item_id=item_id,
-        kind=kind,
-        enabled=bool(payload.get("enabled", True)),
-        inject_order=int(payload.get("inject_order", 0)),
-        target=_deserialize_target(payload.get("target")),
-        render_context={str(key): value for key, value in render_context.items()},
-        plugin_id=str(payload["plugin_id"]) if isinstance(payload.get("plugin_id"), str) else None,
-    )
-
-
-def _serialize_plan(plan: HookPlan) -> dict[str, object]:
-    return {"items": [_serialize_plan_item(item) for item in plan.items]}
-
-
-def _deserialize_plan(payload: object) -> HookPlan | None:
-    if not isinstance(payload, dict):
-        return None
-    items = payload.get("items", [])
-    if not isinstance(items, list):
-        items = []
-    deserialized = [item for item in (_deserialize_plan_item(entry) for entry in items) if item is not None]
-    return HookPlan(items=tuple(deserialized))
-
-
-def _stable_item_id(source_id: str) -> str:
-    digest = sha1(source_id.encode("utf-8"), usedforsecurity=False).hexdigest()
-    return f"hook-{digest}"
-
-
-@dataclass(frozen=True, slots=True)
-class WorkspaceRuntimeState:
-    case_id: str
-    workspace_root: Path
-    updated_at: str
-    selected_hook_sources: tuple[HookPlanSource, ...]
-    rendered_hook_plan: HookPlan
-    execution_count: int = 0
-    last_execution_run_id: str | None = None
-    last_execution_mode: str | None = None
-    last_execution_status: str | None = None
-    last_execution_event_count: int | None = None
-    last_execution_result_path: Path | None = None
-    last_execution_db_path: Path | None = None
-    last_execution_bundle_path: Path | None = None
-    last_report_path: Path | None = None
-
 
 @dataclass(frozen=True, slots=True)
 class ExecutionResult:
     state: WorkspaceRuntimeState
     execution_mode: str
+    executed_backend_key: str
     run_id: str
     event_count: int
     db_path: Path
     bundle_path: Path
     executed_backend_label: str
     events: tuple[HookEvent, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionPreflightResult:
+    case_id: str
+    ready: bool
+    execution_mode: str
+    executed_backend_key: str | None
+    executed_backend_label: str | None
+    detail: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -270,28 +292,226 @@ class WorkspaceRuntimeService:
         custom_script_service: CustomScriptService | None = None,
         hook_plan_service: HookPlanService | None = None,
         report_export_service: ReportExportService | None = None,
+        traffic_capture_service: TrafficCaptureService | None = None,
         case_queue_service: CaseQueueService | None = None,
+        execution_backend_env: Mapping[str, str] | None = None,
+        real_device_command: str | None = None,
+        environment_service: EnvironmentService | None = None,
+        device_inventory_service: DeviceInventoryService | None = None,
     ) -> None:
         self._registry_service = registry_service
         self._default_workspace_root = default_workspace_root
         self._inspection_service = inspection_service
-        self._custom_script_service = custom_script_service or CustomScriptService(
-            default_workspace_root.parent / "custom-scripts"
+        self._custom_scripts_base_root = (
+            custom_script_service.scripts_root if custom_script_service is not None else None
         )
         self._hook_plan_service = hook_plan_service or HookPlanService()
         self._report_export_service = report_export_service or ReportExportService()
+        self._traffic_capture_service = traffic_capture_service or TrafficCaptureService()
         self._case_queue_service = case_queue_service or CaseQueueService()
+        self._execution_backend_env = dict(execution_backend_env or {})
+        self._real_device_command = real_device_command
+        self._environment_service = environment_service or EnvironmentService()
+        self._device_inventory_service = device_inventory_service or DeviceInventoryService()
 
     def get_state(self, case_id: str) -> WorkspaceRuntimeState:
         record = self._inspection_service.get_detail(case_id)
         return self._load_state(record)
 
     def list_custom_scripts(self, case_id: str) -> tuple[CustomScriptRecord, ...]:
-        return self._inspection_service.get_detail(case_id).custom_scripts
+        record = self._inspection_service.get_detail(case_id)
+        return self._custom_script_service_for(record.workspace_root).discover_records()
+
+    def get_traffic_capture(self, case_id: str) -> TrafficCapture | None:
+        self._inspection_service.get_detail(case_id)
+        state = self.get_state(case_id)
+        if state.traffic_capture_summary_path is None or not state.traffic_capture_summary_path.exists():
+            return None
+        try:
+            payload = json.loads(state.traffic_capture_summary_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, ValueError):
+            return None
+        return _deserialize_traffic_capture(payload)
+
+    def get_live_traffic_capture_state(self, case_id: str) -> TrafficLiveCaptureState:
+        return self._load_runtime_state_for(case_id).live_traffic_capture
+
+    def save_live_traffic_capture_state(
+        self,
+        case_id: str,
+        live_capture: TrafficLiveCaptureState,
+    ) -> WorkspaceRuntimeState:
+        state = self._load_runtime_state_for(case_id)
+        return self._save_state(replace(state, live_traffic_capture=live_capture))
+
+    def build_live_traffic_capture_output_path(self, case_id: str, session_id: str) -> Path:
+        workspace_root = self._locate_workspace_root(case_id)
+        return workspace_root / "evidence" / "traffic" / "live" / f"{session_id}.har"
+
+    def get_execution_history(self, case_id: str, limit: int = 20) -> tuple[ExecutionHistoryEntry, ...]:
+        state = self.get_state(case_id)
+        bounded_limit = max(1, min(limit, 200))
+        return tuple(reversed(state.execution_history[-bounded_limit:]))
+
+    def build_execution_preflight(
+        self,
+        case_id: str,
+        execution_mode: str | None = None,
+        runtime_options: ExecutionRuntimeOptions | None = None,
+    ) -> ExecutionPreflightResult:
+        resolved_mode = execution_mode or "fake_backend"
+        executed_backend_key: str | None = None
+        executed_backend_label: str | None = None
+        try:
+            routing = self.resolve_execution_routing(resolved_mode)
+            executed_backend_key = routing.executed_backend_key
+            executed_backend_label = routing.executed_backend_label
+        except ValueError:
+            executed_backend_key = resolved_mode
+            executed_backend_label = label_for_preset(resolved_mode)
+
+        try:
+            self.validate_execution_ready(
+                case_id,
+                execution_mode=resolved_mode,
+                runtime_options=runtime_options,
+            )
+        except ValueError as exc:
+            return ExecutionPreflightResult(
+                case_id=case_id,
+                ready=False,
+                execution_mode=resolved_mode,
+                executed_backend_key=executed_backend_key,
+                executed_backend_label=executed_backend_label,
+                detail=str(exc),
+            )
+
+        return ExecutionPreflightResult(
+            case_id=case_id,
+            ready=True,
+            execution_mode=resolved_mode,
+            executed_backend_key=executed_backend_key,
+            executed_backend_label=executed_backend_label,
+            detail="ready",
+        )
+
+    def import_traffic_capture(
+        self,
+        case_id: str,
+        har_path: str,
+        *,
+        provenance_kind: str = MANUAL_HAR_PROVENANCE_KIND,
+    ) -> TrafficCapture:
+        record = self._inspection_service.get_detail(case_id)
+        candidate_path = Path(har_path).expanduser()
+        if not candidate_path.exists():
+            raise FileNotFoundError(f"HAR file not found: {candidate_path}")
+        capture = self._traffic_capture_service.load_har(
+            candidate_path,
+            record.bundle.static_inputs,
+            provenance_kind=provenance_kind,
+        )
+        summary_path = self._traffic_capture_summary_path(record.workspace_root)
+        summary_path.parent.mkdir(parents=True, exist_ok=True)
+        summary_path.write_text(
+            json.dumps(_serialize_traffic_capture(capture), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        state = self.get_state(case_id)
+        self._save_state(
+            replace(
+                state,
+                traffic_capture_source_path=capture.source_path,
+                traffic_capture_summary_path=summary_path,
+                traffic_capture_flow_count=capture.flow_count,
+                traffic_capture_suspicious_count=capture.suspicious_count,
+            )
+        )
+        return capture
 
     def save_custom_script(self, case_id: str, name: str, content: str) -> CustomScriptRecord:
-        self._inspection_service.get_detail(case_id)
-        return self._custom_script_service.save_script(name, content)
+        record = self._inspection_service.get_detail(case_id)
+        saved = self._custom_script_service_for(record.workspace_root).save_script(name, content)
+        state = self.get_state(case_id)
+        if any(
+            source.kind == "custom_script" and source.script_path == str(saved.script_path)
+            for source in state.selected_hook_sources
+        ):
+            self._save_state(
+                replace(
+                    state,
+                    rendered_hook_plan=self._hook_plan_service.plan_for_sources(
+                        list(state.selected_hook_sources),
+                        previous_plan=state.rendered_hook_plan,
+                    ),
+                )
+            )
+        return saved
+
+    def get_custom_script(self, case_id: str, script_id: str) -> tuple[CustomScriptRecord, str]:
+        record = self._inspection_service.get_detail(case_id)
+        service = self._custom_script_service_for(record.workspace_root)
+        document = service.read_script_document(script_id)
+        return document.record, document.content
+
+    def update_custom_script(
+        self,
+        case_id: str,
+        script_id: str,
+        *,
+        name: str,
+        content: str,
+    ) -> CustomScriptRecord:
+        record = self._inspection_service.get_detail(case_id)
+        service = self._custom_script_service_for(record.workspace_root)
+        state = self.get_state(case_id)
+        original = service.get_record(script_id)
+        updated = service.update_script(script_id, name, content)
+        matched_custom_script = any(
+            source.kind == "custom_script" and source.script_path == str(original.script_path)
+            for source in state.selected_hook_sources
+        )
+        if matched_custom_script:
+            selected_hook_sources = tuple(
+                (
+                    HookPlanSource.from_custom_script(updated.name, str(updated.script_path))
+                    if source.kind == "custom_script" and source.script_path == str(original.script_path)
+                    else source
+                )
+                for source in state.selected_hook_sources
+            )
+            self._save_state(
+                replace(
+                    state,
+                    selected_hook_sources=selected_hook_sources,
+                    rendered_hook_plan=self._hook_plan_service.plan_for_sources(
+                        list(selected_hook_sources),
+                        previous_plan=state.rendered_hook_plan,
+                    ),
+                )
+            )
+        return updated
+
+    def delete_custom_script(self, case_id: str, script_id: str) -> tuple[CustomScriptRecord, WorkspaceRuntimeState]:
+        record = self._inspection_service.get_detail(case_id)
+        service = self._custom_script_service_for(record.workspace_root)
+        state = self.get_state(case_id)
+        deleted = service.delete_script(script_id)
+        selected_hook_sources = tuple(
+            source
+            for source in state.selected_hook_sources
+            if not (source.kind == "custom_script" and source.script_path == str(deleted.script_path))
+        )
+        return deleted, self._save_state(
+            replace(
+                state,
+                selected_hook_sources=selected_hook_sources,
+                rendered_hook_plan=self._hook_plan_service.plan_for_sources(
+                    list(selected_hook_sources),
+                    previous_plan=state.rendered_hook_plan,
+                ),
+            )
+        )
 
     def add_method_to_plan(self, case_id: str, method: MethodIndexEntry) -> WorkspaceRuntimeState:
         return self._mutate_selected_sources(case_id, HookPlanSource.from_method(method))
@@ -331,16 +551,44 @@ class WorkspaceRuntimeService:
             HookPlanSource.from_custom_script(script.name, str(script.script_path)),
         )
 
+    def add_template_to_plan(
+        self,
+        case_id: str,
+        *,
+        template_id: str,
+        template_name: str,
+        plugin_id: str,
+    ) -> WorkspaceRuntimeState:
+        record = self._inspection_service.get_detail(case_id)
+        template = resolve_ssl_hook_template(template_id=template_id, plugin_id=plugin_id)
+        if template is None:
+            raise ValueError("Template is not available.")
+        if template.template_name != template_name:
+            raise ValueError("Template metadata does not match the available template.")
+        source = HookPlanSource.from_template(
+            template_id=template.template_id,
+            template_name=template.template_name,
+            plugin_id=template.plugin_id,
+        )
+        return self._mutate_selected_sources(record.case_id, source)
+
     def remove_hook_plan_item(self, case_id: str, item_id: str) -> WorkspaceRuntimeState:
         state = self.get_state(case_id)
-        remaining = tuple(source for source in state.selected_hook_sources if _stable_item_id(source.source_id) != item_id)
+        remaining = tuple(
+            source
+            for source in state.selected_hook_sources
+            if self._hook_plan_service._stable_item_id(source.source_id) != item_id
+        )
         if len(remaining) == len(state.selected_hook_sources):
             raise KeyError(item_id)
         return self._save_state(
             replace(
                 state,
                 selected_hook_sources=remaining,
-                rendered_hook_plan=self._hook_plan_service.plan_for_sources(list(remaining)),
+                rendered_hook_plan=self._hook_plan_service.plan_for_sources(
+                    list(remaining),
+                    previous_plan=state.rendered_hook_plan,
+                ),
             )
         )
 
@@ -354,35 +602,316 @@ class WorkspaceRuntimeService:
             )
         )
 
-    def execute_current_plan(self, case_id: str, execution_mode: str | None = None) -> ExecutionResult:
+    def update_hook_plan_item(
+        self,
+        case_id: str,
+        item_id: str,
+        *,
+        enabled: bool | None = None,
+        inject_order: int | None = None,
+    ) -> WorkspaceRuntimeState:
+        if enabled is None and inject_order is None:
+            raise ValueError("At least one hook plan field must be updated.")
+
+        state = self.get_state(case_id)
+        current_items = list(state.rendered_hook_plan.items)
+        current_index = next((index for index, item in enumerate(current_items) if item.item_id == item_id), None)
+        if current_index is None:
+            raise KeyError(item_id)
+        if inject_order is not None and not 1 <= inject_order <= len(current_items):
+            raise ValueError("Hook plan order is out of range.")
+
+        updated_item = current_items[current_index]
+        if enabled is not None:
+            updated_item = replace(updated_item, enabled=enabled)
+        current_items[current_index] = updated_item
+
+        visible_source_indices = [
+            index for index, source in enumerate(state.selected_hook_sources) if _source_is_plannable(source)
+        ]
+        if len(visible_source_indices) < len(current_items):
+            visible_source_indices = visible_source_indices[: len(current_items)]
+        visible_sources = [state.selected_hook_sources[index] for index in visible_source_indices]
+
+        if inject_order is not None:
+            target_index = inject_order - 1
+            moved_item = current_items.pop(current_index)
+            current_items.insert(target_index, moved_item)
+            if current_index < len(visible_sources):
+                source = visible_sources.pop(current_index)
+                visible_sources.insert(target_index, source)
+
+        normalized_items = tuple(
+            replace(item, inject_order=index)
+            for index, item in enumerate(current_items, start=1)
+        )
+
+        selected_hook_sources = list(state.selected_hook_sources)
+        for slot, source in zip(visible_source_indices, visible_sources, strict=False):
+            selected_hook_sources[slot] = source
+
+        return self._save_state(
+            replace(
+                state,
+                selected_hook_sources=tuple(selected_hook_sources),
+                rendered_hook_plan=self._hook_plan_service.render_existing_plan(HookPlan(items=normalized_items)),
+            )
+        )
+
+    def get_execution_events(
+        self,
+        case_id: str,
+        limit: int = 20,
+        *,
+        history_id: str | None = None,
+    ) -> tuple[HookEvent, ...]:
         record = self._inspection_service.get_detail(case_id)
         state = self.get_state(case_id)
-        if not state.rendered_hook_plan.items:
-            raise ValueError("Add at least one hook plan item first.")
+        db_path = state.last_execution_db_path
+        if history_id is not None:
+            matched = next((entry for entry in state.execution_history if entry.history_id == history_id), None)
+            if matched is None:
+                raise KeyError(history_id)
+            db_path = matched.db_path
+        if db_path is None or not db_path.exists():
+            return ()
+        bounded_limit = max(1, min(limit, 200))
+        return tuple(HookLogStore(db_path).list_tail_for_job(record.bundle.job.job_id, bounded_limit))
 
+    def mark_execution_started(
+        self,
+        case_id: str,
+        execution_mode: str | None = None,
+        *,
+        executed_backend_key: str | None = None,
+        stage: str = "queued",
+    ) -> WorkspaceRuntimeState:
+        state = self.validate_execution_ready(case_id, execution_mode=execution_mode)
         resolved_mode = execution_mode or "fake_backend"
+        history_id = f"exec-{len(state.execution_history) + 1}"
+        now = _now_iso()
+        history_entry = ExecutionHistoryEntry(
+            history_id=history_id,
+            execution_mode=resolved_mode,
+            executed_backend_key=executed_backend_key or resolved_mode,
+            status="started",
+            stage=stage,
+            started_at=now,
+            updated_at=now,
+        )
+        return self._save_state(
+            replace(
+                state,
+                current_execution_history_id=history_id,
+                execution_history=(*state.execution_history, history_entry),
+                last_execution_mode=resolved_mode,
+                last_executed_backend_key=executed_backend_key or resolved_mode,
+                last_execution_status="started",
+                last_execution_stage=stage,
+                last_execution_error_code=None,
+                last_execution_error_message=None,
+                last_execution_event_count=None,
+            )
+        )
+
+    def mark_execution_progress(
+        self,
+        case_id: str,
+        *,
+        execution_mode: str | None = None,
+        executed_backend_key: str | None = None,
+        status: str = "started",
+        stage: str,
+    ) -> WorkspaceRuntimeState:
+        state = self.get_state(case_id)
+        resolved_mode = execution_mode or state.last_execution_mode or "fake_backend"
+        state = self._replace_current_execution_history(
+            state,
+            execution_mode=resolved_mode,
+            executed_backend_key=executed_backend_key or state.last_executed_backend_key or resolved_mode,
+            status=status,
+            stage=stage,
+            error_code=None,
+            error_message=None,
+        )
+        return self._save_state(
+            replace(
+                state,
+                last_execution_mode=resolved_mode,
+                last_executed_backend_key=executed_backend_key or state.last_executed_backend_key or resolved_mode,
+                last_execution_status=status,
+                last_execution_stage=stage,
+                last_execution_error_code=None,
+                last_execution_error_message=None,
+            )
+        )
+
+    def mark_execution_failed(
+        self,
+        case_id: str,
+        execution_mode: str | None = None,
+        *,
+        executed_backend_key: str | None = None,
+        stage: str = "failed",
+        error_code: str | None = None,
+        message: str | None = None,
+    ) -> WorkspaceRuntimeState:
+        state = self.get_state(case_id)
+        resolved_mode = execution_mode or state.last_execution_mode or "fake_backend"
+        state = self._replace_current_execution_history(
+            state,
+            execution_mode=resolved_mode,
+            executed_backend_key=executed_backend_key or state.last_executed_backend_key or resolved_mode,
+            status="error",
+            stage=stage,
+            error_code=error_code,
+            error_message=message,
+            clear_current=True,
+        )
+        return self._save_state(
+            replace(
+                state,
+                last_execution_mode=resolved_mode,
+                last_executed_backend_key=executed_backend_key or state.last_executed_backend_key or resolved_mode,
+                last_execution_status="error",
+                last_execution_stage=stage,
+                last_execution_error_code=error_code,
+                last_execution_error_message=message,
+            )
+        )
+
+    def mark_execution_cancelled(
+        self,
+        case_id: str,
+        execution_mode: str | None = None,
+        *,
+        executed_backend_key: str | None = None,
+    ) -> WorkspaceRuntimeState:
+        state = self.get_state(case_id)
+        resolved_mode = execution_mode or state.last_execution_mode or "fake_backend"
+        state = self._replace_current_execution_history(
+            state,
+            execution_mode=resolved_mode,
+            executed_backend_key=executed_backend_key or state.last_executed_backend_key or resolved_mode,
+            status="cancelled",
+            stage="cancelled",
+            error_code=None,
+            error_message=None,
+            clear_current=True,
+        )
+        return self._save_state(
+            replace(
+                state,
+                last_execution_mode=resolved_mode,
+                last_executed_backend_key=executed_backend_key or state.last_executed_backend_key or resolved_mode,
+                last_execution_status="cancelled",
+                last_execution_stage="cancelled",
+                last_execution_error_code=None,
+                last_execution_error_message=None,
+            )
+        )
+
+    def mark_execution_completed(
+        self,
+        case_id: str,
+        *,
+        run_index: int,
+        run_id: str,
+        execution_mode: str,
+        executed_backend_key: str,
+        event_count: int,
+        db_path: Path,
+        bundle_path: Path,
+    ) -> WorkspaceRuntimeState:
+        state = self.get_state(case_id)
+        state = self._replace_current_execution_history(
+            state,
+            run_id=run_id,
+            execution_mode=execution_mode,
+            executed_backend_key=executed_backend_key,
+            status="completed",
+            stage="completed",
+            error_code=None,
+            error_message=None,
+            event_count=event_count,
+            db_path=db_path,
+            bundle_path=bundle_path,
+            clear_current=True,
+        )
+        return self._save_state(
+            replace(
+                state,
+                execution_count=run_index,
+                last_execution_run_id=run_id,
+                last_execution_mode=execution_mode,
+                last_executed_backend_key=executed_backend_key,
+                last_execution_status="completed",
+                last_execution_stage="completed",
+                last_execution_error_code=None,
+                last_execution_error_message=None,
+                last_execution_event_count=event_count,
+                last_execution_result_path=bundle_path,
+                last_execution_db_path=db_path,
+                last_execution_bundle_path=bundle_path,
+            )
+        )
+
+    def resolve_execution_routing(self, execution_mode: str | None = None) -> ExecutionRouting:
+        requested_mode = execution_mode or "fake_backend"
+        runtime_availability = build_execution_runtime_availability(
+            extra_env=self._execution_backend_env,
+            real_device_command=self._real_device_command,
+        )
+        snapshot = self._environment_service.inspect()
+        return resolve_execution_routing(
+            requested_mode,
+            snapshot=snapshot,
+            runtime_availability=runtime_availability,
+        )
+
+    def execute_current_plan(
+        self,
+        case_id: str,
+        execution_mode: str | None = None,
+        *,
+        executed_backend_key: str | None = None,
+        runtime_options: ExecutionRuntimeOptions | None = None,
+        cancellation_event: Event | None = None,
+        progress_callback: Callable[[str], None] | None = None,
+    ) -> ExecutionResult:
+        record = self._inspection_service.get_detail(case_id)
+        state = self.validate_execution_ready(case_id, execution_mode=execution_mode)
+        resolved_mode = execution_mode or "fake_backend"
+        routing = self.resolve_execution_routing(resolved_mode)
+        resolved_backend_key = executed_backend_key or routing.executed_backend_key
         run_index = state.execution_count + 1
         run_id = f"run-{run_index}"
         bundle_path = record.workspace_root / "executions" / run_id
         bundle_path.mkdir(parents=True, exist_ok=True)
+        runtime_env = _build_runtime_env(runtime_options)
+        backend_env = dict(self._execution_backend_env)
+        backend_env.update(runtime_env)
 
-        if resolved_mode == "fake_backend":
-            backend = FakeExecutionBackend()
-        elif resolved_mode.startswith("real_"):
-            backend = RealExecutionBackend(
-                command=os.environ.get("APKHACKER_REAL_BACKEND_COMMAND"),
-                artifact_root=bundle_path,
-            )
-        else:
-            raise ValueError(f"Unsupported execution mode: {resolved_mode}")
+        backend = build_execution_backend(
+            resolved_backend_key,
+            artifact_root=bundle_path,
+            extra_env=backend_env,
+            real_device_command=self._real_device_command,
+        )
 
+        if progress_callback is not None:
+            progress_callback("executing")
         request = ExecutionRequest(
             job_id=record.bundle.job.job_id,
             plan=state.rendered_hook_plan,
             package_name=record.bundle.static_inputs.package_name,
             sample_path=record.sample_path,
+            runtime_env=runtime_env,
+            cancellation_event=cancellation_event,
         )
         events = backend.execute(request)
+        if cancellation_event is not None and cancellation_event.is_set():
+            raise ExecutionCancelled("Execution was cancelled by the user.")
 
         bundle_from_backend = next(
             (
@@ -397,6 +926,8 @@ class WorkspaceRuntimeService:
             bundle_path.mkdir(parents=True, exist_ok=True)
 
         db_path = bundle_path / "hook-events.sqlite3"
+        if progress_callback is not None:
+            progress_callback("persisting")
         store = HookLogStore(db_path)
         persisted_events: list[HookEvent] = []
         for event in events:
@@ -405,27 +936,25 @@ class WorkspaceRuntimeService:
             persisted_events.append(event)
         for event in persisted_events:
             store.insert(replace(event, job_id=record.bundle.job.job_id))
-        runtime_state = self._save_state(
-            replace(
-                state,
-                execution_count=run_index,
-                last_execution_run_id=run_id,
-                last_execution_mode=resolved_mode,
-                last_execution_status="completed",
-                last_execution_event_count=len(persisted_events),
-                last_execution_result_path=bundle_path,
-                last_execution_db_path=db_path,
-                last_execution_bundle_path=bundle_path,
-            )
+        runtime_state = self.mark_execution_completed(
+            case_id,
+            run_index=run_index,
+            run_id=run_id,
+            execution_mode=resolved_mode,
+            executed_backend_key=resolved_backend_key,
+            event_count=len(persisted_events),
+            db_path=db_path,
+            bundle_path=bundle_path,
         )
         return ExecutionResult(
             state=runtime_state,
             execution_mode=resolved_mode,
+            executed_backend_key=resolved_backend_key,
             run_id=run_id,
             event_count=len(persisted_events),
             db_path=db_path,
             bundle_path=bundle_path,
-            executed_backend_label=label_for_preset(resolved_mode),
+            executed_backend_label=label_for_preset(resolved_backend_key),
             events=tuple(persisted_events),
         )
 
@@ -433,6 +962,7 @@ class WorkspaceRuntimeService:
         record = self._inspection_service.get_detail(case_id)
         state = self.get_state(case_id)
         events: tuple[HookEvent, ...] = ()
+        traffic_capture = self.get_traffic_capture(case_id)
         if state.last_execution_db_path is not None and state.last_execution_db_path.exists():
             events = tuple(HookLogStore(state.last_execution_db_path).list_for_job(record.bundle.job.job_id))
 
@@ -448,9 +978,14 @@ class WorkspaceRuntimeService:
             static_inputs=record.bundle.static_inputs,
             hook_plan=state.rendered_hook_plan,
             hook_events=events,
-            traffic_capture=None,
+            traffic_capture=traffic_capture,
             last_execution_db_path=state.last_execution_db_path,
             last_execution_bundle_path=state.last_execution_bundle_path,
+            last_execution_status=state.last_execution_status,
+            last_execution_mode=state.last_execution_mode,
+            last_executed_backend_key=state.last_executed_backend_key,
+            last_execution_error_code=state.last_execution_error_code,
+            last_execution_error_message=state.last_execution_error_message,
         )
         report_path = record.workspace_root / "reports" / f"{case_id}-report.md"
         exported_path = self._report_export_service.export_markdown(report, report_path)
@@ -461,6 +996,83 @@ class WorkspaceRuntimeService:
             static_report_path=static_report_path,
         )
 
+    def validate_execution_ready(
+        self,
+        case_id: str,
+        execution_mode: str | None = None,
+        runtime_options: ExecutionRuntimeOptions | None = None,
+    ) -> WorkspaceRuntimeState:
+        self._inspection_service.get_detail(case_id)
+        state = self.get_state(case_id)
+        if not state.rendered_hook_plan.items:
+            raise ValueError("Add at least one hook plan item first.")
+        resolved_mode = execution_mode or "fake_backend"
+        if resolved_mode != "fake_backend" and not resolved_mode.startswith("real_"):
+            raise ValueError(f"Unsupported execution mode: {resolved_mode}")
+        if resolved_mode != "fake_backend" and runtime_options is not None:
+            frida_server_binary_path = runtime_options.frida_server_binary_path.strip()
+            if frida_server_binary_path:
+                binary_path = Path(frida_server_binary_path).expanduser()
+                if not binary_path.exists():
+                    raise ValueError("Frida server binary path does not exist.")
+            frida_session_seconds = runtime_options.frida_session_seconds.strip()
+            if frida_session_seconds:
+                try:
+                    parsed_seconds = float(frida_session_seconds)
+                except ValueError as exc:
+                    raise ValueError("Frida session seconds must be a valid number.") from exc
+                if parsed_seconds <= 0:
+                    raise ValueError("Frida session seconds must be greater than zero.")
+        runtime_availability = build_execution_runtime_availability(
+            extra_env=self._execution_backend_env,
+            real_device_command=self._real_device_command,
+        )
+        preset_statuses = build_execution_preset_statuses(
+            self._environment_service.inspect(),
+            runtime_availability=runtime_availability,
+        )
+        status_by_key = {status.key: status for status in preset_statuses}
+        preset_status = status_by_key.get(resolved_mode)
+        if preset_status is not None and not preset_status.available:
+            raise ValueError(f"Execution preset unavailable: {preset_status.detail}")
+
+        if resolved_mode == "fake_backend":
+            return state
+
+        record = self._inspection_service.get_detail(case_id)
+        routing = self.resolve_execution_routing(resolved_mode)
+        device_snapshot = self._device_inventory_service.inspect(
+            package_name=record.bundle.static_inputs.package_name,
+        )
+        available_devices = [device for device in device_snapshot.devices if device.available]
+        if not available_devices:
+            raise ValueError("未发现已连接 Android 设备。")
+
+        requested_serial = runtime_options.device_serial.strip() if runtime_options is not None else ""
+        selected_device = None
+        if requested_serial:
+            selected_device = next((device for device in available_devices if device.serial == requested_serial), None)
+            if selected_device is None:
+                raise ValueError(f"所选设备未连接：{requested_serial}")
+        elif len(available_devices) == 1:
+            selected_device = available_devices[0]
+        else:
+            raise ValueError("检测到多个已连接设备，请先选择目标设备。")
+
+        if routing.executed_backend_key in {"real_frida_probe", "real_frida_inject"} and not selected_device.frida_visible:
+            raise ValueError("所选设备当前未被 Frida 识别，请先启动 frida-server。")
+        if routing.executed_backend_key == "real_frida_session":
+            has_bootstrap_binary = bool(runtime_options and runtime_options.frida_server_binary_path.strip())
+            if not selected_device.frida_visible and not has_bootstrap_binary:
+                raise ValueError("所选设备当前未被 Frida 识别，请提供 Frida Server 文件或先完成自举。")
+        if routing.executed_backend_key == "real_frida_bootstrap":
+            has_bootstrap_binary = bool(runtime_options and runtime_options.frida_server_binary_path.strip())
+            if not has_bootstrap_binary:
+                raise ValueError("Frida 自举模式需要提供 Frida Server 文件。")
+            if selected_device.rooted is False:
+                raise ValueError("所选设备当前未 Root，无法自举 frida-server。")
+        return state
+
     def _mutate_selected_sources(self, case_id: str, source: HookPlanSource) -> WorkspaceRuntimeState:
         state = self.get_state(case_id)
         if any(existing.source_id == source.source_id for existing in state.selected_hook_sources):
@@ -470,84 +1082,109 @@ class WorkspaceRuntimeService:
             replace(
                 state,
                 selected_hook_sources=selected_hook_sources,
-                rendered_hook_plan=self._hook_plan_service.plan_for_sources(list(selected_hook_sources)),
+                rendered_hook_plan=self._hook_plan_service.plan_for_sources(
+                    list(selected_hook_sources),
+                    previous_plan=state.rendered_hook_plan,
+                ),
             )
         )
 
     def _state_path(self, workspace_root: Path) -> Path:
         return workspace_root / "workspace-runtime.json"
 
-    def _load_state(self, record: WorkspaceInspectionRecord) -> WorkspaceRuntimeState:
-        path = self._state_path(record.workspace_root)
-        if not path.exists():
-            return WorkspaceRuntimeState(
-                case_id=record.case_id,
-                workspace_root=record.workspace_root,
-                updated_at=_now_iso(),
-                selected_hook_sources=(),
-                rendered_hook_plan=HookPlan(items=()),
-            )
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError, ValueError):
-            return WorkspaceRuntimeState(
-                case_id=record.case_id,
-                workspace_root=record.workspace_root,
-                updated_at=_now_iso(),
-                selected_hook_sources=(),
-                rendered_hook_plan=HookPlan(items=()),
-            )
-        if not isinstance(payload, dict):
-            return WorkspaceRuntimeState(
-                case_id=record.case_id,
-                workspace_root=record.workspace_root,
-                updated_at=_now_iso(),
-                selected_hook_sources=(),
-                rendered_hook_plan=HookPlan(items=()),
-            )
-        selected_hook_sources = tuple(
-            source for source in (_deserialize_source(entry) for entry in payload.get("selected_hook_sources", [])) if source is not None
-        )
-        rendered_hook_plan = _deserialize_plan(payload.get("rendered_hook_plan"))
-        if rendered_hook_plan is None:
-            rendered_hook_plan = self._hook_plan_service.plan_for_sources(list(selected_hook_sources))
-        execution_count = int(payload.get("execution_count", 0))
-        return WorkspaceRuntimeState(
-            case_id=record.case_id,
-            workspace_root=record.workspace_root,
-            updated_at=str(payload.get("updated_at", _now_iso())),
-            selected_hook_sources=selected_hook_sources,
-            rendered_hook_plan=rendered_hook_plan,
-            execution_count=execution_count,
-            last_execution_run_id=payload.get("last_execution_run_id"),
-            last_execution_mode=payload.get("last_execution_mode"),
-            last_execution_status=payload.get("last_execution_status"),
-            last_execution_event_count=payload.get("last_execution_event_count"),
-            last_execution_result_path=_normalize_path(payload.get("last_execution_result_path")),
-            last_execution_db_path=_normalize_path(payload.get("last_execution_db_path")),
-            last_execution_bundle_path=_normalize_path(payload.get("last_execution_bundle_path")),
-            last_report_path=_normalize_path(payload.get("last_report_path")),
+    def _traffic_capture_summary_path(self, workspace_root: Path) -> Path:
+        return workspace_root / "evidence" / "traffic" / "traffic-capture.json"
+
+    def _custom_script_service_for(self, workspace_root: Path) -> CustomScriptService:
+        if self._custom_scripts_base_root is not None:
+            return CustomScriptService(self._custom_scripts_base_root / workspace_root.name)
+        return CustomScriptService(workspace_root / "scripts")
+
+    def _locate_workspace_root(self, case_id: str) -> Path:
+        registry = self._registry_service.load()
+        seen: set[Path] = set()
+        roots: list[Path] = [self._default_workspace_root]
+        roots.extend(registry.known_workspace_roots)
+        for root in roots:
+            normalized_root = root.expanduser()
+            if normalized_root in seen:
+                continue
+            seen.add(normalized_root)
+            for item in self._case_queue_service.list_cases(normalized_root):
+                if item.case_id == case_id:
+                    return item.workspace_root
+        raise CaseNotFoundError(case_id)
+
+    def _load_runtime_state_for(self, case_id: str) -> WorkspaceRuntimeState:
+        workspace_root = self._locate_workspace_root(case_id)
+        return load_workspace_runtime_state(
+            case_id=case_id,
+            workspace_root=workspace_root,
+            path=self._state_path(workspace_root),
+            hook_plan_service=self._hook_plan_service,
         )
 
+    def _load_state(self, record: WorkspaceInspectionRecord) -> WorkspaceRuntimeState:
+        path = self._state_path(record.workspace_root)
+        state = load_workspace_runtime_state(
+            case_id=record.case_id,
+            workspace_root=record.workspace_root,
+            path=path,
+            hook_plan_service=self._hook_plan_service,
+        )
+        if not path.exists():
+            return build_default_runtime_state(record.case_id, record.workspace_root)
+        return state
+
     def _save_state(self, state: WorkspaceRuntimeState) -> WorkspaceRuntimeState:
-        payload = {
-            "case_id": state.case_id,
-            "updated_at": _now_iso(),
-            "selected_hook_sources": [_serialize_source(source) for source in state.selected_hook_sources],
-            "rendered_hook_plan": _serialize_plan(state.rendered_hook_plan),
-            "execution_count": state.execution_count,
-            "last_execution_run_id": state.last_execution_run_id,
-            "last_execution_mode": state.last_execution_mode,
-            "last_execution_status": state.last_execution_status,
-            "last_execution_event_count": state.last_execution_event_count,
-            "last_execution_result_path": str(state.last_execution_result_path) if state.last_execution_result_path else None,
-            "last_execution_db_path": str(state.last_execution_db_path) if state.last_execution_db_path else None,
-            "last_execution_bundle_path": str(state.last_execution_bundle_path) if state.last_execution_bundle_path else None,
-            "last_report_path": str(state.last_report_path) if state.last_report_path else None,
-        }
         path = self._state_path(state.workspace_root)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temp_path = path.with_suffix(f"{path.suffix}.tmp")
-        temp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        temp_path.replace(path)
-        return replace(state, updated_at=payload["updated_at"])
+        return save_workspace_runtime_state(state, path)
+
+    def _replace_current_execution_history(
+        self,
+        state: WorkspaceRuntimeState,
+        *,
+        run_id: str | None = None,
+        execution_mode: str | None = None,
+        executed_backend_key: str | None = None,
+        status: str | None = None,
+        stage: str | None = None,
+        error_code: str | None = None,
+        error_message: str | None = None,
+        event_count: int | None = None,
+        db_path: Path | None = None,
+        bundle_path: Path | None = None,
+        clear_current: bool = False,
+    ) -> WorkspaceRuntimeState:
+        history_id = state.current_execution_history_id
+        if history_id is None:
+            return state
+
+        updated_entries = list(state.execution_history)
+        for index, entry in enumerate(updated_entries):
+            if entry.history_id != history_id:
+                continue
+            updated_entries[index] = replace(
+                entry,
+                run_id=run_id if run_id is not None else entry.run_id,
+                execution_mode=execution_mode if execution_mode is not None else entry.execution_mode,
+                executed_backend_key=(
+                    executed_backend_key
+                    if executed_backend_key is not None
+                    else entry.executed_backend_key
+                ),
+                status=status if status is not None else entry.status,
+                stage=stage if stage is not None else entry.stage,
+                error_code=error_code if error_code is not None else entry.error_code,
+                error_message=error_message if error_message is not None else entry.error_message,
+                event_count=event_count if event_count is not None else entry.event_count,
+                db_path=db_path if db_path is not None else entry.db_path,
+                bundle_path=bundle_path if bundle_path is not None else entry.bundle_path,
+                updated_at=_now_iso(),
+            )
+            return replace(
+                state,
+                current_execution_history_id=None if clear_current else history_id,
+                execution_history=tuple(updated_entries),
+            )
+        return state

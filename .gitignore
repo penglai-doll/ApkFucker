@@ -6,9 +6,16 @@ __pycache__/
 *.db
 *.sqlite3
 .venv/
+.claude/
+.superpowers/
+.apkhacker/
 dist/
 build/
 *.egg-info/
+node_modules/
 output/
 报告/
 cache/
+workspaces/
+src-tauri/target/
+src-tauri/gen/

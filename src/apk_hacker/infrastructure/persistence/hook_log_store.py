@@ -64,7 +64,25 @@ class HookLogStore:
                 """,
                 (job_id,),
             ).fetchall()
+        return self._rows_to_events(rows)
 
+    def list_tail_for_job(self, job_id: str, limit: int = 20) -> list[HookEvent]:
+        with sqlite3.connect(self._db_path) as connection:
+            rows = connection.execute(
+                """
+                SELECT timestamp, job_id, event_type, source, class_name, method_name,
+                       arguments, return_value, stacktrace, raw_payload
+                FROM hook_events
+                WHERE job_id = ?
+                ORDER BY timestamp DESC
+                LIMIT ?
+                """,
+                (job_id, limit),
+            ).fetchall()
+        return list(reversed(self._rows_to_events(rows)))
+
+    @staticmethod
+    def _rows_to_events(rows: list[tuple[object, ...]]) -> list[HookEvent]:
         return [
             HookEvent(
                 timestamp=row[0],

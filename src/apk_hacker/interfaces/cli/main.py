@@ -7,8 +7,8 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from apk_hacker.application.services.execution_runtime import build_execution_backend_env
+from apk_hacker.application.services.workbench_controller import WorkbenchController, WorkbenchState
 from apk_hacker.infrastructure.execution.real_backend import RealExecutionBackend
-from apk_hacker.interfaces.gui_pyqt.viewmodels import WorkbenchController, WorkbenchState
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:

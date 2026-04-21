@@ -54,7 +54,7 @@ def test_packaged_frida_inject_backend_invokes_frida_with_target_and_script(tmp_
         command=f"{sys.executable} -m apk_hacker.tools.frida_inject_backend",
         extra_env={
             "PATH": env_path,
-            "APKHACKER_FRIDA_WARMUP_SECONDS": "1.5",
+            "APKHACKER_FRIDA_WARMUP_SECONDS": "3.0",
         },
     )
 
@@ -96,7 +96,7 @@ def test_packaged_frida_inject_backend_honors_selected_device_serial(tmp_path: P
         extra_env={
             "PATH": env_path,
             "APKHACKER_DEVICE_SERIAL": "serial-123",
-            "APKHACKER_FRIDA_WARMUP_SECONDS": "1.5",
+            "APKHACKER_FRIDA_WARMUP_SECONDS": "3.0",
         },
     )
 
@@ -119,7 +119,7 @@ def test_packaged_frida_inject_backend_requires_rendered_script(tmp_path: Path) 
         command=f"{sys.executable} -m apk_hacker.tools.frida_inject_backend",
         extra_env={
             "PATH": env_path,
-            "APKHACKER_FRIDA_WARMUP_SECONDS": "1.5",
+            "APKHACKER_FRIDA_WARMUP_SECONDS": "3.0",
         },
     )
 
@@ -214,7 +214,7 @@ exit 1
             "PATH": env_path,
             "APKHACKER_DEVICE_SERIAL": "serial-123",
             "APKHACKER_FRIDA_SERVER_BINARY": str(frida_server_binary),
-            "APKHACKER_FRIDA_WARMUP_SECONDS": "1.5",
+            "APKHACKER_FRIDA_WARMUP_SECONDS": "3.0",
         },
     )
 

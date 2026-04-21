@@ -7,7 +7,7 @@ from apk_hacker.domain.models.execution import ExecutionRequest
 from apk_hacker.domain.models.hook_event import HookEvent
 from apk_hacker.infrastructure.execution.backend import ExecutionBackend
 from apk_hacker.interfaces.cli.main import execute_cli, parse_args
-from apk_hacker.interfaces.gui_pyqt.viewmodels import WorkbenchController
+from apk_hacker.application.services.workbench_controller import WorkbenchController
 from apk_hacker.static_engine.analyzer import StaticArtifacts
 from pytest import raises
 

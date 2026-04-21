@@ -3,15 +3,25 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from uuid import uuid4
 
 
-def default_workspace_data_root(base_root: Path | None = None) -> Path:
+def legacy_workspace_data_root(base_root: Path | None = None) -> Path:
     root = base_root or Path.cwd()
     return root / "cache" / "gui"
 
 
+def default_workspace_data_root(base_root: Path | None = None) -> Path:
+    root = base_root or Path.cwd()
+    return root / "cache" / "workbench"
+
+
 def default_workspace_registry_path(base_root: Path | None = None) -> Path:
-    return default_workspace_data_root(base_root) / "workspace-registry.json"
+    default_path = default_workspace_data_root(base_root) / "workspace-registry.json"
+    legacy_path = legacy_workspace_data_root(base_root) / "workspace-registry.json"
+    if not default_path.exists() and legacy_path.exists():
+        return legacy_path
+    return default_path
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,7 +87,7 @@ class WorkspaceRegistryService:
 
     def save(self, registry: WorkspaceRegistry) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        temp_path = self._path.with_suffix(f"{self._path.suffix}.tmp")
+        temp_path = self._path.with_suffix(f"{self._path.suffix}.{uuid4().hex}.tmp")
         temp_path.write_text(
             json.dumps(
                 {

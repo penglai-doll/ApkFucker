@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+
+from apk_hacker.static_engine.tooling.jadx_exporter import build_jadx_command
 
 
 LEGACY_DIR = Path(__file__).resolve().parent / "legacy"
@@ -63,6 +66,53 @@ def _parse_artifacts(payload: dict, layout: dict[str, Path]) -> StaticArtifacts:
     )
 
 
+def _export_jadx_sources_if_available(
+    *,
+    target_path: Path,
+    artifacts: StaticArtifacts,
+) -> StaticArtifacts:
+    if artifacts.jadx_sources_dir is not None:
+        return artifacts
+
+    jadx_binary = shutil.which("jadx")
+    if not jadx_binary or not target_path.is_file():
+        return artifacts
+
+    jadx_project_dir = artifacts.output_root / "jadx"
+    sources_dir = jadx_project_dir / "sources"
+    if sources_dir.exists():
+        return StaticArtifacts(
+            output_root=artifacts.output_root,
+            report_dir=artifacts.report_dir,
+            cache_dir=artifacts.cache_dir,
+            analysis_json=artifacts.analysis_json,
+            callback_config_json=artifacts.callback_config_json,
+            noise_log_json=artifacts.noise_log_json,
+            jadx_sources_dir=sources_dir.resolve(),
+            jadx_project_dir=jadx_project_dir.resolve(),
+        )
+
+    completed = subprocess.run(
+        build_jadx_command(jadx_binary, target_path, jadx_project_dir),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0 or not sources_dir.exists():
+        return artifacts
+
+    return StaticArtifacts(
+        output_root=artifacts.output_root,
+        report_dir=artifacts.report_dir,
+        cache_dir=artifacts.cache_dir,
+        analysis_json=artifacts.analysis_json,
+        callback_config_json=artifacts.callback_config_json,
+        noise_log_json=artifacts.noise_log_json,
+        jadx_sources_dir=sources_dir.resolve(),
+        jadx_project_dir=jadx_project_dir.resolve(),
+    )
+
+
 class StaticAnalyzer:
     legacy_module_name = "investigate_android_app"
 
@@ -87,7 +137,8 @@ class StaticAnalyzer:
         except json.JSONDecodeError as exc:
             raise ValueError("Legacy static engine did not emit valid JSON stdout.") from exc
 
-        return _parse_artifacts(payload, layout)
+        artifacts = _parse_artifacts(payload, layout)
+        return _export_jadx_sources_if_available(target_path=target_path, artifacts=artifacts)
 
     def __call__(self, target_path: Path, output_dir: Path | None = None, mode: str = "auto") -> StaticArtifacts:
         return self.analyze(target_path, output_dir=output_dir, mode=mode)

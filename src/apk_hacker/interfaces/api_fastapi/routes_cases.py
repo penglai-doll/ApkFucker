@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from fastapi import status
 
 from apk_hacker.application.services.case_queue_service import CaseQueueService
+from apk_hacker.application.services.workspace_inspection_service import WorkspaceInspectionService
 from apk_hacker.application.services.workspace_registry_service import WorkspaceRegistryService
 from apk_hacker.application.services.workspace_service import WorkspaceService
 from apk_hacker.interfaces.api_fastapi.schemas import CaseListResponse
@@ -37,12 +38,14 @@ def build_cases_router(
     *,
     case_queue_service: CaseQueueService | None = None,
     workspace_service: WorkspaceService | None = None,
+    workspace_inspection_service: WorkspaceInspectionService | None = None,
     registry_service: WorkspaceRegistryService,
     default_workspace_root: Path,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/cases", tags=["cases"])
     queue_service = case_queue_service or CaseQueueService()
     create_workspace_service = workspace_service or WorkspaceService()
+    inspection_service = workspace_inspection_service
 
     @router.get("", response_model=CaseListResponse)
     def list_cases() -> CaseListResponse:
@@ -73,6 +76,13 @@ def build_cases_router(
             workspace_root=target_root,
             title=payload.title,
         )
+        if inspection_service is not None:
+            try:
+                inspection_service.get_detail(record.case_id)
+            except Exception:
+                # Import should remain available even when the first static pass fails.
+                # The workspace can still be reopened later after the environment or sample is fixed.
+                pass
         registry_service.remember_workspace_root(target_root)
         registry_service.set_last_opened_workspace(record.workspace_root)
         return ImportedCaseResponse(

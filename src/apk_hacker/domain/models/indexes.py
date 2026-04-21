@@ -22,6 +22,8 @@ class MethodIndexEntry:
     overload_count: int
     source_path: str
     line_hint: int | None
+    declaration: str = ""
+    source_preview: str = ""
     tags: tuple[str, ...] = ()
     evidence: tuple[str, ...] = ()
 

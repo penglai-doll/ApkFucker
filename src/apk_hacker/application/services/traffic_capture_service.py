@@ -1,11 +1,25 @@
 from __future__ import annotations
 
+from collections import deque
+from collections import defaultdict
 import json
 from pathlib import Path
 from urllib.parse import urlparse
 
 from apk_hacker.domain.models.static_inputs import StaticInputs
-from apk_hacker.domain.models.traffic import TrafficCapture, TrafficFlowSummary
+from apk_hacker.domain.models.traffic import TrafficCapture
+from apk_hacker.domain.models.traffic import TrafficCaptureSummary
+from apk_hacker.domain.models.traffic import TrafficCaptureProvenance
+from apk_hacker.domain.models.traffic import TrafficFlowSummary
+from apk_hacker.domain.models.traffic import TrafficHostSummary
+
+MANUAL_HAR_PROVENANCE_KIND = "manual_har"
+LIVE_CAPTURE_PROVENANCE_KIND = "live_capture"
+
+_TRAFFIC_CAPTURE_PROVENANCE_LABELS = {
+    MANUAL_HAR_PROVENANCE_KIND: "手工 HAR 导入",
+    LIVE_CAPTURE_PROVENANCE_KIND: "实时抓包自动导入",
+}
 
 
 def _preview(text: object | None, limit: int = 120) -> str:
@@ -44,8 +58,29 @@ def _indicators(static_inputs: StaticInputs) -> tuple[str, ...]:
     return tuple(ordered)
 
 
+def infer_traffic_capture_provenance_kind(source_path: Path) -> str:
+    normalized = source_path.expanduser().resolve().as_posix()
+    if "/evidence/traffic/live/" in normalized:
+        return LIVE_CAPTURE_PROVENANCE_KIND
+    return MANUAL_HAR_PROVENANCE_KIND
+
+
+def build_traffic_capture_provenance(kind: str | None, source_path: Path) -> TrafficCaptureProvenance:
+    normalized_kind = kind or infer_traffic_capture_provenance_kind(source_path)
+    label = _TRAFFIC_CAPTURE_PROVENANCE_LABELS.get(normalized_kind)
+    if label is None:
+        raise ValueError(f"Unsupported traffic capture provenance kind: {normalized_kind}")
+    return TrafficCaptureProvenance(kind=normalized_kind, label=label)
+
+
 class TrafficCaptureService:
-    def load_har(self, har_path: Path, static_inputs: StaticInputs) -> TrafficCapture:
+    def load_har(
+        self,
+        har_path: Path,
+        static_inputs: StaticInputs,
+        *,
+        provenance_kind: str | None = None,
+    ) -> TrafficCapture:
         path = har_path.expanduser().resolve()
         payload = json.loads(path.read_text(encoding="utf-8"))
         entries = payload.get("log", {}).get("entries", [])
@@ -54,6 +89,15 @@ class TrafficCaptureService:
 
         indicators = _indicators(static_inputs)
         flows: list[TrafficFlowSummary] = []
+        host_stats: dict[str, dict[str, int]] = defaultdict(
+            lambda: {
+                "flow_count": 0,
+                "suspicious_count": 0,
+                "https_flow_count": 0,
+            }
+        )
+        https_flow_count = 0
+        matched_indicator_count = 0
         for index, entry in enumerate(entries, start=1):
             if not isinstance(entry, dict):
                 continue
@@ -75,6 +119,18 @@ class TrafficCaptureService:
                 mime_type = str(raw_mime) if raw_mime else None
 
             matched = tuple(indicator for indicator in indicators if indicator in url)
+            parsed = urlparse(url)
+            host = (parsed.hostname or parsed.netloc or "").strip() or "(unknown)"
+            scheme = parsed.scheme.lower()
+            is_https = scheme == "https"
+            if is_https:
+                https_flow_count += 1
+            matched_indicator_count += len(matched)
+            host_stats[host]["flow_count"] += 1
+            if is_https:
+                host_stats[host]["https_flow_count"] += 1
+            if matched:
+                host_stats[host]["suspicious_count"] += 1
             flows.append(
                 TrafficFlowSummary(
                     flow_id=f"flow-{index}",
@@ -91,9 +147,77 @@ class TrafficCaptureService:
 
         flows.sort(key=lambda item: (not item.suspicious, item.url))
         suspicious_count = sum(1 for flow in flows if flow.suspicious)
+        host_summaries = tuple(
+            TrafficHostSummary(
+                host=host,
+                flow_count=stats["flow_count"],
+                suspicious_count=stats["suspicious_count"],
+                https_flow_count=stats["https_flow_count"],
+            )
+            for host, stats in sorted(
+                host_stats.items(),
+                key=lambda item: (
+                    -item[1]["flow_count"],
+                    -item[1]["suspicious_count"],
+                    -item[1]["https_flow_count"],
+                    item[0],
+                ),
+            )
+        )
+        top_hosts = host_summaries[:5]
+        suspicious_hosts = tuple(summary for summary in host_summaries if summary.suspicious_count > 0)[:5]
         return TrafficCapture(
             source_path=path,
+            provenance=build_traffic_capture_provenance(provenance_kind, path),
             flow_count=len(flows),
             suspicious_count=suspicious_count,
+            summary=TrafficCaptureSummary(
+                https_flow_count=https_flow_count,
+                matched_indicator_count=matched_indicator_count,
+                top_hosts=top_hosts,
+                suspicious_hosts=suspicious_hosts,
+            ),
             flows=tuple(flows),
         )
+
+    def load_live_preview(self, preview_path: Path, *, limit: int = 8) -> tuple[tuple[dict[str, object], ...], bool]:
+        path = preview_path.expanduser().resolve()
+        if not path.exists():
+            return (), False
+
+        bounded_limit = max(1, min(limit, 20))
+        recent_items: deque[dict[str, object]] = deque(maxlen=bounded_limit)
+        total_valid = 0
+
+        with path.open("r", encoding="utf-8") as handle:
+            for index, line in enumerate(handle, start=1):
+                normalized = line.strip()
+                if not normalized:
+                    continue
+                try:
+                    payload = json.loads(normalized)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(payload, dict):
+                    continue
+                url = str(payload.get("url", "")).strip()
+                method = str(payload.get("method", "GET")).upper()
+                if not url:
+                    continue
+                matched_indicators = payload.get("matched_indicators", [])
+                if not isinstance(matched_indicators, list):
+                    matched_indicators = []
+                status_code = payload.get("status_code")
+                preview_item = {
+                    "flow_id": str(payload.get("flow_id") or f"preview-{index}"),
+                    "timestamp": str(payload["timestamp"]) if isinstance(payload.get("timestamp"), str) else None,
+                    "method": method,
+                    "url": url,
+                    "status_code": status_code if isinstance(status_code, int) else None,
+                    "matched_indicators": [str(value) for value in matched_indicators],
+                    "suspicious": bool(payload.get("suspicious", False)),
+                }
+                total_valid += 1
+                recent_items.append(preview_item)
+
+        return tuple(recent_items), total_valid > len(recent_items)

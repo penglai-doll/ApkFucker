@@ -1,8 +1,11 @@
 import type { WorkspaceEvent } from "./types";
+import { resolveApiBaseUrl } from "./api";
 
 type WsEnv = {
   VITE_API_BASE_URL?: string;
 };
+
+type RuntimeLocation = Pick<Location, "protocol" | "host">;
 
 type WorkspaceEventsOptions = {
   caseId: string;
@@ -14,19 +17,34 @@ export type WorkspaceEventsConnection = {
   close: () => void;
 };
 
-function resolveWebSocketUrl(): string {
-  const configuredBaseUrl = ((import.meta as ImportMeta & { env?: WsEnv }).env?.VITE_API_BASE_URL ?? "").replace(
-    /\/$/,
-    "",
-  );
+export function resolveWebSocketBaseUrl(options: {
+  configuredBaseUrl?: string;
+  runtimeBaseUrl?: string;
+  location?: RuntimeLocation | null;
+  tauriRuntime?: boolean;
+} = {}): string {
+  const apiBaseUrl = resolveApiBaseUrl({
+    configuredBaseUrl: options.configuredBaseUrl ?? (import.meta as ImportMeta & { env?: WsEnv }).env?.VITE_API_BASE_URL,
+    runtimeBaseUrl: options.runtimeBaseUrl,
+    location: options.location,
+    tauriRuntime: options.tauriRuntime,
+  });
 
-  if (configuredBaseUrl) {
-    const wsBaseUrl = configuredBaseUrl.replace(/^http/i, "ws");
-    return `${wsBaseUrl}/ws`;
+  if (apiBaseUrl) {
+    return apiBaseUrl.replace(/^http/i, "ws");
   }
 
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${window.location.host}/ws`;
+  const location = options.location ?? (typeof window !== "undefined" ? window.location : null);
+  if (!location) {
+    return "ws://127.0.0.1:8765";
+  }
+
+  const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+  return `${protocol}//${location.host}`;
+}
+
+export function resolveWebSocketUrl(): string {
+  return `${resolveWebSocketBaseUrl()}/ws`;
 }
 
 export function connectWorkspaceEvents({

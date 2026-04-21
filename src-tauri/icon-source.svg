@@ -1,0 +1,42 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="128" y1="96" x2="896" y2="928" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#10213F"/>
+      <stop offset="1" stop-color="#09111F"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="302" y1="198" x2="732" y2="666" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#49E3AE"/>
+      <stop offset="1" stop-color="#1CB17A"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="278" y1="338" x2="736" y2="826" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F6FBFF"/>
+      <stop offset="1" stop-color="#D4E5F8"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="96" y="96" width="832" height="832" rx="216" fill="url(#bg)"/>
+  <rect x="96" y="96" width="832" height="832" rx="216" stroke="#2C4A77" stroke-width="20"/>
+
+  <g opacity="0.18">
+    <circle cx="780" cy="266" r="126" fill="#49E3AE"/>
+    <circle cx="260" cy="792" r="158" fill="#2F6CE5"/>
+  </g>
+
+  <g>
+    <path d="M380 278C380 210.621 434.621 156 502 156H522C589.379 156 644 210.621 644 278V314H380V278Z" fill="url(#accent)"/>
+    <rect x="364" y="298" width="296" height="212" rx="112" fill="url(#accent)"/>
+    <circle cx="456" cy="398" r="20" fill="#0B1527"/>
+    <circle cx="568" cy="398" r="20" fill="#0B1527"/>
+    <rect x="326" y="338" width="46" height="180" rx="23" fill="#23BE86"/>
+    <rect x="652" y="338" width="46" height="180" rx="23" fill="#23BE86"/>
+    <path d="M430 204L386 132" stroke="#49E3AE" stroke-width="22" stroke-linecap="round"/>
+    <path d="M594 204L638 132" stroke="#49E3AE" stroke-width="22" stroke-linecap="round"/>
+  </g>
+
+  <g>
+    <rect x="248" y="474" width="528" height="316" rx="124" fill="#0E1C31"/>
+    <path d="M512 560L648 776H592L552 712H472L432 776H376L512 560Z" fill="url(#panel)"/>
+    <path d="M510 642L495 670H529L510 642Z" fill="#0E1C31"/>
+    <rect x="450" y="700" width="124" height="28" rx="14" fill="#0E1C31"/>
+  </g>
+</svg>

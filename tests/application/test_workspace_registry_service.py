@@ -1,5 +1,8 @@
 from pathlib import Path
 
+from apk_hacker.application.services.workspace_registry_service import default_workspace_data_root
+from apk_hacker.application.services.workspace_registry_service import default_workspace_registry_path
+from apk_hacker.application.services.workspace_registry_service import legacy_workspace_data_root
 from apk_hacker.application.services.workspace_registry_service import WorkspaceRegistry
 from apk_hacker.application.services.workspace_registry_service import WorkspaceRegistryService
 
@@ -68,3 +71,16 @@ def test_registry_tracks_known_workspace_roots_without_duplicates(tmp_path: Path
     restored = registry.load()
 
     assert restored.known_workspace_roots == (root_one, root_two)
+
+
+def test_default_workspace_paths_use_workbench_name_for_new_installations(tmp_path: Path) -> None:
+    assert default_workspace_data_root(tmp_path) == tmp_path / "cache" / "workbench"
+    assert default_workspace_registry_path(tmp_path) == tmp_path / "cache" / "workbench" / "workspace-registry.json"
+
+
+def test_default_workspace_registry_path_falls_back_to_legacy_gui_location(tmp_path: Path) -> None:
+    legacy_registry_path = legacy_workspace_data_root(tmp_path) / "workspace-registry.json"
+    legacy_registry_path.parent.mkdir(parents=True)
+    legacy_registry_path.write_text("{}", encoding="utf-8")
+
+    assert default_workspace_registry_path(tmp_path) == legacy_registry_path

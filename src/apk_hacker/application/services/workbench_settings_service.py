@@ -13,6 +13,8 @@ class WorkbenchSettings:
     frida_server_binary_path: str = ""
     frida_server_remote_path: str = ""
     frida_session_seconds: str = ""
+    live_capture_listen_host: str = "0.0.0.0"
+    live_capture_listen_port: str = "8080"
 
 
 class WorkbenchSettingsService:
@@ -39,6 +41,8 @@ class WorkbenchSettingsService:
             frida_server_binary_path=str(payload.get("frida_server_binary_path", "") or ""),
             frida_server_remote_path=str(payload.get("frida_server_remote_path", "") or ""),
             frida_session_seconds=str(payload.get("frida_session_seconds", "") or ""),
+            live_capture_listen_host=str(payload.get("live_capture_listen_host", "0.0.0.0") or "0.0.0.0"),
+            live_capture_listen_port=str(payload.get("live_capture_listen_port", "8080") or "8080"),
         )
 
     def save(self, settings: WorkbenchSettings) -> None:

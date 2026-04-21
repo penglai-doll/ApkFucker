@@ -8,12 +8,14 @@ from pathlib import Path
 import shlex
 import subprocess
 from tempfile import TemporaryDirectory
+import time
 from uuid import uuid4
 
 from apk_hacker.domain.models.execution import ExecutionRequest
 from apk_hacker.domain.models.hook_event import HookEvent
 from apk_hacker.domain.models.hook_plan import HookPlan, HookPlanItem
 from apk_hacker.infrastructure.execution.backend import ExecutionBackend, ExecutionBackendUnavailable
+from apk_hacker.infrastructure.execution.backend import ExecutionCancelled
 
 
 ENV_COMMAND = "APKHACKER_REAL_BACKEND_COMMAND"
@@ -106,6 +108,52 @@ def _parse_events(job_id: str, stdout: str) -> tuple[HookEvent, ...]:
     return tuple(events)
 
 
+def _extract_error_detail(events: tuple[HookEvent, ...]) -> tuple[str | None, str | None]:
+    for event in reversed(events):
+        explicit_error_code = str(event.raw_payload.get("error_code", "")).strip() or None
+        explicit_message = str(event.raw_payload.get("message", "")).strip() or None
+        if explicit_error_code is not None:
+            return explicit_error_code, explicit_message or event.return_value or event.stacktrace or explicit_error_code
+        if event.event_type == "app_install_error":
+            return "app_install_error", event.return_value or "App install failed."
+        if event.event_type == "frida_script_error":
+            return "frida_script_error", event.stacktrace or event.return_value or "Frida script failed."
+        if event.event_type == "frida_injection_error":
+            return "frida_injection_error", event.return_value or "Frida injection failed."
+        if event.event_type == "frida_session_error":
+            if event.method_name == "device_connect":
+                return "device_connect_failed", event.return_value or "Frida device connection failed."
+            if event.method_name == "module_import":
+                return "frida_runtime_unavailable", event.return_value or "Python frida module is unavailable."
+            return "frida_session_error", event.return_value or "Frida session failed."
+        if event.event_type == "frida_server_error":
+            return "frida_server_error", event.return_value or "Frida server bootstrap failed."
+        if event.event_type == "frida_server_status" and event.return_value in {"missing-binary", "root-required", "start-failed"}:
+            return "frida_server_error", event.return_value
+        if event.event_type.endswith("_error"):
+            return event.event_type, event.return_value or event.stacktrace or event.event_type
+    return None, None
+
+
+def _classify_unstructured_failure(detail: str) -> str:
+    lowered = detail.lower()
+    if "apkhacker_real_backend_command" in lowered or "not configured" in lowered:
+        return "backend_not_configured"
+    if "missing-sample" in lowered or "install_failed" in lowered:
+        return "app_install_error"
+    if "device" in lowered and "connect" in lowered:
+        return "device_connect_failed"
+    if "frida" in lowered and "module" in lowered:
+        return "frida_runtime_unavailable"
+    return "backend_unavailable"
+
+
+def _append_artifact_hint(detail: str, workdir: Path, artifact_root: Path | None) -> str:
+    if artifact_root is None:
+        return detail
+    return f"{detail}. Artifacts saved to {workdir}"
+
+
 def _run_bundle_event(
     job_id: str,
     workdir: Path,
@@ -164,6 +212,8 @@ class CommandExecutionRunner:
             scripts_dir.mkdir(parents=True, exist_ok=True)
 
             for item in sorted(request.plan.items, key=lambda plan_item: plan_item.inject_order):
+                if not item.enabled:
+                    continue
                 rendered_script = str(item.render_context.get("rendered_script", ""))
                 stem = item.kind
                 if item.target is not None:
@@ -198,24 +248,59 @@ class CommandExecutionRunner:
                 env["APKHACKER_TARGET_PACKAGE"] = request.package_name
             if request.sample_path is not None:
                 env["APKHACKER_SAMPLE_PATH"] = str(request.sample_path)
-            completed = subprocess.run(
+            process = subprocess.Popen(
                 shlex.split(self._command),
                 cwd=workdir,
                 env=env,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                check=False,
             )
-            stdout_path.write_text(completed.stdout, encoding="utf-8")
-            stderr_path.write_text(completed.stderr, encoding="utf-8")
-            if completed.returncode != 0:
-                stderr = completed.stderr.strip()
-                stdout = completed.stdout.strip()
-                detail = stderr or stdout or f"exit code {completed.returncode}"
-                if self._artifact_root is not None:
-                    detail = f"{detail}. Artifacts saved to {workdir}"
-                raise ExecutionBackendUnavailable(f"Real device execution failed: {detail}")
-            parsed_events = _parse_events(request.job_id, completed.stdout)
+            stdout = ""
+            stderr = ""
+            try:
+                while True:
+                    if request.cancellation_event is not None and request.cancellation_event.is_set():
+                        process.terminate()
+                        try:
+                            stdout, stderr = process.communicate(timeout=2)
+                        except subprocess.TimeoutExpired:
+                            process.kill()
+                            stdout, stderr = process.communicate()
+                        stdout_path.write_text(stdout, encoding="utf-8")
+                        stderr_path.write_text(stderr, encoding="utf-8")
+                        raise ExecutionCancelled("Execution was cancelled by the user.")
+
+                    return_code = process.poll()
+                    if return_code is not None:
+                        stdout, stderr = process.communicate()
+                        break
+                    time.sleep(0.1)
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                    stdout, stderr = process.communicate()
+
+            stdout_path.write_text(stdout, encoding="utf-8")
+            stderr_path.write_text(stderr, encoding="utf-8")
+            parsed_events = _parse_events(request.job_id, stdout)
+            stderr_text = stderr.strip()
+            stdout_text = stdout.strip()
+            error_code, structured_detail = _extract_error_detail(parsed_events)
+            if process.returncode != 0:
+                detail = structured_detail or stderr_text or stdout_text or f"exit code {process.returncode}"
+                detail = _append_artifact_hint(detail, workdir, self._artifact_root)
+                raise ExecutionBackendUnavailable(
+                    f"Real device execution failed: {detail}",
+                    error_code=error_code or _classify_unstructured_failure(detail),
+                )
+            if error_code is not None:
+                detail = structured_detail or stderr_text or stdout_text or error_code
+                detail = _append_artifact_hint(detail, workdir, self._artifact_root)
+                raise ExecutionBackendUnavailable(
+                    f"Real device execution failed: {detail}",
+                    error_code=error_code,
+                )
             if self._artifact_root is None:
                 return parsed_events
             return (
@@ -259,6 +344,7 @@ class RealExecutionBackend(ExecutionBackend):
         if self._runner is None:
             raise ExecutionBackendUnavailable(
                 f"Real device execution is not available because the backend is not configured. "
-                f"Set {ENV_COMMAND} or inject a real backend runner."
+                f"Set {ENV_COMMAND} or inject a real backend runner.",
+                error_code="backend_not_configured",
             )
         return self._runner(request)

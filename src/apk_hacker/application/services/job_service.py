@@ -59,6 +59,14 @@ class JobService:
         self._hook_plan_service = hook_plan_service or HookPlanService()
         self._fake_backend = fake_backend or FakeExecutionBackend()
 
+    def build_method_index(
+        self,
+        jadx_sources_dir: Path,
+        *,
+        package_prefixes: tuple[str, ...] = (),
+    ) -> MethodIndex:
+        return self._method_indexer.build(jadx_sources_dir, package_prefixes=package_prefixes)
+
     def create_job(self, input_target: Path) -> AnalysisJob:
         job = AnalysisJob.queued(str(input_target))
         self._jobs[job.job_id] = job
@@ -93,7 +101,10 @@ class JobService:
             },
         )
         method_index = (
-            self._method_indexer.build(artifacts.jadx_sources_dir)
+            self.build_method_index(
+                artifacts.jadx_sources_dir,
+                package_prefixes=(static_inputs.package_name,),
+            )
             if artifacts.jadx_sources_dir is not None
             else _empty_method_index()
         )
@@ -125,7 +136,7 @@ class JobService:
             callback_config=callback_config,
             artifact_paths={"analysis_report": "cache/demo/analysis.json"},
         )
-        index = self._method_indexer.build(jadx_sources_dir)
+        index = self.build_method_index(jadx_sources_dir)
         selected = tuple(method for method in index.methods if method.method_name == "buildUploadUrl")
         plan = self._hook_plan_service.plan_for_methods(list(selected))
         events = self._fake_backend.execute(

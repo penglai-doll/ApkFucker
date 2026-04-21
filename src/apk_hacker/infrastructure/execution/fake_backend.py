@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from apk_hacker.domain.models.execution import ExecutionRequest
 from apk_hacker.domain.models.hook_event import HookEvent
 from apk_hacker.infrastructure.execution.backend import ExecutionBackend
+from apk_hacker.infrastructure.execution.backend import ExecutionCancelled
 
 
 class FakeExecutionBackend(ExecutionBackend):
@@ -12,6 +13,8 @@ class FakeExecutionBackend(ExecutionBackend):
         events: list[HookEvent] = []
 
         for item in sorted(request.plan.items, key=lambda plan_item: plan_item.inject_order):
+            if request.cancellation_event is not None and request.cancellation_event.is_set():
+                raise ExecutionCancelled("Execution was cancelled by the user.")
             if not item.enabled:
                 continue
 

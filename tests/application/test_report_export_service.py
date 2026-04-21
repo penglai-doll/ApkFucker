@@ -4,6 +4,7 @@ import json
 from apk_hacker.application.services.hook_plan_service import HookPlanService
 from apk_hacker.application.services.report_export_service import ExportableReport, ReportExportService
 from apk_hacker.application.services.static_adapter import StaticAdapter
+from apk_hacker.application.services.traffic_capture_service import TrafficCaptureService
 from apk_hacker.domain.models.execution import ExecutionRequest
 from apk_hacker.domain.services.method_indexer import JavaMethodIndexer
 from apk_hacker.infrastructure.execution.fake_backend import FakeExecutionBackend
@@ -36,6 +37,10 @@ def test_report_export_service_writes_markdown_report(tmp_path: Path) -> None:
             sample_path=Path("/samples/demo.apk"),
         )
     )
+    traffic_capture = TrafficCaptureService().load_har(
+        Path("tests/fixtures/traffic/sample.har"),
+        static_inputs,
+    )
 
     report = ExportableReport(
         job_id="job-1",
@@ -44,7 +49,7 @@ def test_report_export_service_writes_markdown_report(tmp_path: Path) -> None:
         static_inputs=static_inputs,
         hook_plan=plan,
         hook_events=events,
-        traffic_capture=None,
+        traffic_capture=traffic_capture,
         last_execution_db_path=tmp_path / "job-1-run-1.sqlite3",
         last_execution_bundle_path=tmp_path / "execution-runs" / "job-1-run-1",
     )
@@ -61,3 +66,6 @@ def test_report_export_service_writes_markdown_report(tmp_path: Path) -> None:
     assert "Captured 2 event(s) from the fake backend." in content
     assert "Legacy Static Narrative" in content
     assert "静态报告正文" in content
+    assert "HTTPS Flow Count" in content
+    assert "Top Hosts" in content
+    assert "demo-c2.example" in content

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -57,6 +59,22 @@ class CustomScriptCreateRequest(BaseModel):
     content: str
 
 
+class CustomScriptUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = None
+    content: str
+
+
+class CustomScriptContentResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    script_id: str
+    name: str
+    script_path: str
+    content: str
+
+
 class CustomScriptListResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -72,6 +90,8 @@ class HookPlanMethodRequest(BaseModel):
     return_type: str
     source_path: str
     line_hint: int | None = None
+    declaration: str | None = None
+    source_preview: str | None = None
     tags: list[str] = Field(default_factory=list)
     evidence: list[str] = Field(default_factory=list)
     is_constructor: bool = False
@@ -84,10 +104,31 @@ class HookPlanRecommendationRequest(BaseModel):
     recommendation_id: str
 
 
+class HookPlanTemplateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    template_id: str
+    template_name: str
+    plugin_id: str
+
+
 class HookPlanCustomScriptRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     script_id: str
+
+
+class HookPlanItemUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool | None = None
+    inject_order: int | None = Field(default=None, ge=1)
+
+
+class HookPlanItemMoveRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    direction: str
 
 
 class HookPlanTargetSummary(BaseModel):
@@ -122,9 +163,35 @@ class HookPlanItemResponse(BaseModel):
     kind: str
     enabled: bool
     inject_order: int
+    source: HookPlanSourceSummary | None = None
     target: HookPlanTargetSummary | None = None
     render_context: dict[str, object] = Field(default_factory=dict)
     plugin_id: str | None = None
+
+
+class WorkspaceRuntimeSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    execution_count: int = 0
+    last_execution_run_id: str | None = None
+    last_execution_mode: str | None = None
+    last_executed_backend_key: str | None = None
+    last_execution_status: str | None = None
+    last_execution_stage: str | None = None
+    last_execution_error_code: str | None = None
+    last_execution_error_message: str | None = None
+    last_execution_event_count: int | None = None
+    last_execution_result_path: str | None = None
+    last_execution_db_path: str | None = None
+    last_execution_bundle_path: str | None = None
+    last_report_path: str | None = None
+    traffic_capture_source_path: str | None = None
+    traffic_capture_summary_path: str | None = None
+    traffic_capture_flow_count: int | None = None
+    traffic_capture_suspicious_count: int | None = None
+    live_traffic_status: str | None = None
+    live_traffic_artifact_path: str | None = None
+    live_traffic_message: str | None = None
 
 
 class HookPlanResponse(BaseModel):
@@ -137,12 +204,106 @@ class HookPlanResponse(BaseModel):
     execution_count: int = 0
     last_execution_run_id: str | None = None
     last_execution_mode: str | None = None
+    last_executed_backend_key: str | None = None
     last_execution_status: str | None = None
+    last_execution_stage: str | None = None
+    last_execution_error_code: str | None = None
+    last_execution_error_message: str | None = None
     last_execution_event_count: int | None = None
     last_execution_result_path: str | None = None
     last_execution_db_path: str | None = None
     last_execution_bundle_path: str | None = None
     last_report_path: str | None = None
+
+
+class WorkspaceEventResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: str
+    case_id: str | None = None
+    status: str | None = None
+    artifact_path: str | None = None
+    stage: str | None = None
+    run_id: str | None = None
+    execution_mode: str | None = None
+    executed_backend_key: str | None = None
+    event_count: int | None = None
+    db_path: str | None = None
+    bundle_path: str | None = None
+    executed_backend_label: str | None = None
+    error_code: str | None = None
+    message: str | None = None
+    timestamp: str | None = None
+    payload: dict[str, object] = Field(default_factory=dict)
+
+
+class WorkspaceEventsResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    case_id: str
+    items: list[WorkspaceEventResponse] = Field(default_factory=list)
+
+
+class ExecutionPreflightRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    execution_mode: str | None = None
+    device_serial: str | None = None
+    frida_server_binary_path: str | None = None
+    frida_server_remote_path: str | None = None
+    frida_session_seconds: str | None = None
+
+
+class ExecutionPreflightResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    case_id: str
+    ready: bool
+    execution_mode: str
+    executed_backend_key: str | None = None
+    executed_backend_label: str | None = None
+    detail: str
+
+
+class ConnectedDeviceResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    serial: str
+    state: str
+    model: str | None = None
+    product: str | None = None
+    device: str | None = None
+    transport_id: str | None = None
+    abi: str | None = None
+    rooted: bool | None = None
+    frida_visible: bool | None = None
+    package_installed: bool | None = None
+    is_emulator: bool = False
+
+
+class ExecutionHistoryEntryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    history_id: str
+    run_id: str | None = None
+    execution_mode: str | None = None
+    executed_backend_key: str | None = None
+    status: str | None = None
+    stage: str | None = None
+    error_code: str | None = None
+    error_message: str | None = None
+    event_count: int | None = None
+    db_path: str | None = None
+    bundle_path: str | None = None
+    started_at: str
+    updated_at: str
+
+
+class ExecutionHistoryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    case_id: str
+    items: list[ExecutionHistoryEntryResponse] = Field(default_factory=list)
 
 
 class WorkspaceDetailResponse(BaseModel):
@@ -162,6 +323,7 @@ class WorkspaceDetailResponse(BaseModel):
     can_open_in_jadx: bool
     has_method_index: bool
     method_count: int
+    runtime: WorkspaceRuntimeSummary
 
 
 class WorkspaceMethodSummary(BaseModel):
@@ -175,8 +337,13 @@ class WorkspaceMethodSummary(BaseModel):
     overload_count: int
     source_path: str
     line_hint: int | None = None
+    declaration: str | None = None
+    source_preview: str | None = None
     tags: list[str] = Field(default_factory=list)
     evidence: list[str] = Field(default_factory=list)
+
+
+WorkspaceMethodScope = Literal["first_party", "related_candidates", "all"]
 
 
 class WorkspaceMethodsResponse(BaseModel):
@@ -184,6 +351,10 @@ class WorkspaceMethodsResponse(BaseModel):
 
     items: list[WorkspaceMethodSummary] = Field(default_factory=list)
     total: int = 0
+    scope: WorkspaceMethodScope = "first_party"
+    available_scopes: list[WorkspaceMethodScope] = Field(
+        default_factory=lambda: ["first_party", "related_candidates", "all"]
+    )
 
 
 class HookRecommendationSummary(BaseModel):
@@ -207,6 +378,94 @@ class WorkspaceRecommendationsResponse(BaseModel):
     items: list[HookRecommendationSummary] = Field(default_factory=list)
 
 
+class TrafficImportRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    har_path: str
+
+
+class TrafficFlowSummaryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    flow_id: str
+    method: str
+    url: str
+    status_code: int | None = None
+    mime_type: str | None = None
+    request_preview: str
+    response_preview: str
+    matched_indicators: list[str] = Field(default_factory=list)
+    suspicious: bool
+
+
+class TrafficCaptureProvenanceResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: str
+    label: str
+
+
+class TrafficHostSummaryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    host: str
+    flow_count: int
+    suspicious_count: int
+    https_flow_count: int
+
+
+class TrafficCaptureSummaryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    https_flow_count: int = 0
+    matched_indicator_count: int = 0
+    top_hosts: list[TrafficHostSummaryResponse] = Field(default_factory=list)
+    suspicious_hosts: list[TrafficHostSummaryResponse] = Field(default_factory=list)
+
+
+class TrafficCaptureResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    case_id: str
+    source_path: str
+    provenance: TrafficCaptureProvenanceResponse
+    flow_count: int
+    suspicious_count: int
+    https_flow_count: int = 0
+    matched_indicator_count: int = 0
+    top_hosts: list[TrafficHostSummaryResponse] = Field(default_factory=list)
+    suspicious_hosts: list[TrafficHostSummaryResponse] = Field(default_factory=list)
+    summary: TrafficCaptureSummaryResponse
+    flows: list[TrafficFlowSummaryResponse] = Field(default_factory=list)
+
+
+class WorkspaceTrafficResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    case_id: str
+    capture: TrafficCaptureResponse | None = None
+
+
+class LiveTrafficCaptureResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    case_id: str
+    status: str
+    artifact_path: str | None = None
+    message: str | None = None
+
+
+class TrafficLiveCaptureResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    case_id: str
+    status: str
+    session_id: str | None = None
+    output_path: str | None = None
+    message: str | None = None
+    capture: TrafficCaptureResponse | None = None
+
+
 class OpenJadxResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -218,6 +477,10 @@ class ExecutionStartRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     execution_mode: str | None = None
+    device_serial: str | None = None
+    frida_server_binary_path: str | None = None
+    frida_server_remote_path: str | None = None
+    frida_session_seconds: str | None = None
 
 
 class ExecutionStartResponse(BaseModel):
@@ -226,11 +489,23 @@ class ExecutionStartResponse(BaseModel):
     case_id: str
     status: str
     execution_mode: str | None = None
+    executed_backend_key: str | None = None
+    stage: str | None = None
     run_id: str | None = None
     event_count: int | None = None
     db_path: str | None = None
     bundle_path: str | None = None
     executed_backend_label: str | None = None
+
+
+class ExecutionCancelResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    case_id: str
+    status: str
+    execution_mode: str | None = None
+    executed_backend_key: str | None = None
+    stage: str | None = None
 
 
 class ReportExportResponse(BaseModel):
@@ -250,6 +525,43 @@ class StartupSettingsResponse(BaseModel):
     last_workspace_root: str | None = None
     case_id: str | None = None
     title: str | None = None
+
+
+class RuntimeSettingsResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    execution_mode: str
+    device_serial: str
+    frida_server_binary_path: str
+    frida_server_remote_path: str
+    frida_session_seconds: str
+    live_capture_listen_host: str
+    live_capture_listen_port: str
+
+
+class RuntimeSettingsUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    execution_mode: str | None = None
+    device_serial: str | None = None
+    frida_server_binary_path: str | None = None
+    frida_server_remote_path: str | None = None
+    frida_session_seconds: str | None = None
+    live_capture_listen_host: str | None = None
+    live_capture_listen_port: str | None = None
+
+
+class OpenPathRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    path: str
+
+
+class OpenPathResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    path: str
+    status: str
 
 
 class HealthResponse(BaseModel):
@@ -278,10 +590,81 @@ class ExecutionPresetStatusResponse(BaseModel):
     detail: str
 
 
+class GuidanceStepResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: str
+    title: str
+    detail: str
+    emphasis: str
+
+
+class SuggestedHookTemplateResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    template_id: str
+    template_name: str
+    plugin_id: str
+
+
+class LiveCaptureNetworkSummaryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    supports_https_intercept: bool
+    supports_packet_capture: bool
+    supports_ssl_hooking: bool
+    proxy_ready: bool
+    certificate_ready: bool
+    https_capture_ready: bool
+
+
+class SslHookGuidanceResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    recommended: bool
+    summary: str
+    reason: str
+    suggested_templates: list[str] = Field(default_factory=list)
+    suggested_template_entries: list[SuggestedHookTemplateResponse] = Field(default_factory=list)
+    suggested_terms: list[str] = Field(default_factory=list)
+
+
+class LiveCaptureRuntimeResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    available: bool
+    source: str
+    detail: str
+    listen_host: str
+    listen_port: int
+    help_text: str | None = None
+    proxy_address_hint: str | None = None
+    install_url: str | None = None
+    certificate_path: str | None = None
+    certificate_directory_path: str | None = None
+    certificate_exists: bool = False
+    certificate_help_text: str | None = None
+    proxy_ready: bool = False
+    certificate_ready: bool = False
+    https_capture_ready: bool = False
+    setup_steps: list[str] = Field(default_factory=list)
+    proxy_steps: list[str] = Field(default_factory=list)
+    certificate_steps: list[str] = Field(default_factory=list)
+    recommended_actions: list[str] = Field(default_factory=list)
+    setup_step_details: list[GuidanceStepResponse] = Field(default_factory=list)
+    proxy_step_details: list[GuidanceStepResponse] = Field(default_factory=list)
+    certificate_step_details: list[GuidanceStepResponse] = Field(default_factory=list)
+    network_summary: LiveCaptureNetworkSummaryResponse
+    ssl_hook_guidance: SslHookGuidanceResponse
+
+
 class EnvironmentResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     summary: str
     recommended_execution_mode: str | None = None
+    recommended_device_serial: str | None = None
     tools: list[ToolStatusResponse] = Field(default_factory=list)
+    connected_devices: list[ConnectedDeviceResponse] = Field(default_factory=list)
+    live_capture: LiveCaptureRuntimeResponse
     execution_presets: list[ExecutionPresetStatusResponse] = Field(default_factory=list)

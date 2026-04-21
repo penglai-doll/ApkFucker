@@ -1,11 +1,15 @@
 from pathlib import Path
 import os
 import sys
+import threading
+import time
 
+import pytest
 from pytest import raises
 
 from apk_hacker.domain.models.execution import ExecutionRequest
 from apk_hacker.domain.models.hook_plan import HookPlan
+from apk_hacker.infrastructure.execution.backend import ExecutionCancelled
 from apk_hacker.infrastructure.execution.backend import ExecutionBackendUnavailable
 from apk_hacker.infrastructure.execution.real_backend import RealExecutionBackend
 
@@ -71,6 +75,78 @@ def test_real_backend_surfaces_command_failures(tmp_path: Path) -> None:
         backend.execute(ExecutionRequest(job_id="job-1", plan=HookPlan(items=())))
 
 
+def test_real_backend_classifies_structured_runner_errors(tmp_path: Path) -> None:
+    helper = tmp_path / "structured_fail.py"
+    helper.write_text(
+        """
+import json
+import sys
+
+print(json.dumps({
+    "event_type": "app_install_error",
+    "class_name": "adb.package",
+    "method_name": "com.demo.shell",
+    "arguments": ["/tmp/sample.apk"],
+    "return_value": "INSTALL_FAILED_TEST_ONLY",
+    "stacktrace": "",
+}))
+sys.exit(2)
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    backend = RealExecutionBackend(command=f"{sys.executable} {helper}")
+
+    with raises(ExecutionBackendUnavailable, match="INSTALL_FAILED_TEST_ONLY") as exc_info:
+        backend.execute(ExecutionRequest(job_id="job-1", plan=HookPlan(items=())))
+
+    assert exc_info.value.error_code == "app_install_error"
+    assert exc_info.value.message == "INSTALL_FAILED_TEST_ONLY"
+
+
+@pytest.mark.parametrize(
+    ("event_type", "return_value", "expected_error_code"),
+    (
+        ("frida_session_error", "attach failed", "frida_session_error"),
+        ("frida_injection_error", "inject failed", "frida_injection_error"),
+        ("frida_server_error", "server failed", "frida_server_error"),
+        ("custom_runner_error", "runner failed", "custom_runner_error"),
+    ),
+)
+def test_real_backend_treats_structured_fatal_events_as_failures_even_on_exit_zero(
+    tmp_path: Path,
+    event_type: str,
+    return_value: str,
+    expected_error_code: str,
+) -> None:
+    helper = tmp_path / "structured_zero_exit.py"
+    helper.write_text(
+        f"""
+import json
+
+print(json.dumps({{
+    "event_type": "{event_type}",
+    "class_name": "real.backend",
+    "method_name": "run",
+    "arguments": [],
+    "return_value": "{return_value}",
+    "stacktrace": "",
+}}))
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    backend = RealExecutionBackend(command=f"{sys.executable} {helper}")
+
+    with raises(ExecutionBackendUnavailable, match=return_value) as exc_info:
+        backend.execute(ExecutionRequest(job_id="job-structured", plan=HookPlan(items=())))
+
+    assert exc_info.value.error_code == expected_error_code
+    assert exc_info.value.message == return_value
+
+
 def test_real_backend_persists_execution_bundle_when_artifact_root_is_configured(tmp_path: Path) -> None:
     helper = tmp_path / "emit_events.py"
     helper.write_text(
@@ -125,3 +201,37 @@ def test_real_backend_surfaces_artifact_bundle_path_on_failure(tmp_path: Path) -
     [bundle_dir] = list(artifact_root.iterdir())
     assert (bundle_dir / "stdout.log").read_text(encoding="utf-8").startswith("helper-started")
     assert "backend failed" in (bundle_dir / "stderr.log").read_text(encoding="utf-8")
+
+
+def test_real_backend_terminates_running_command_when_cancellation_is_requested(tmp_path: Path) -> None:
+    helper = tmp_path / "sleep.py"
+    helper.write_text(
+        "import time\nprint('helper-started', flush=True)\ntime.sleep(10)\n",
+        encoding="utf-8",
+    )
+
+    backend = RealExecutionBackend(command=f"{sys.executable} {helper}")
+    cancellation_event = threading.Event()
+    caught: list[BaseException] = []
+
+    def run_backend() -> None:
+        try:
+            backend.execute(
+                ExecutionRequest(
+                    job_id="job-2",
+                    plan=HookPlan(items=()),
+                    cancellation_event=cancellation_event,
+                )
+            )
+        except BaseException as exc:  # pragma: no cover - asserted below
+            caught.append(exc)
+
+    worker = threading.Thread(target=run_backend)
+    worker.start()
+    time.sleep(0.2)
+    cancellation_event.set()
+    worker.join(timeout=5)
+
+    assert not worker.is_alive()
+    assert len(caught) == 1
+    assert isinstance(caught[0], ExecutionCancelled)

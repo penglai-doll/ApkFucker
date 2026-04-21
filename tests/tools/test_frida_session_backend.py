@@ -3,10 +3,13 @@ import json
 import os
 import sys
 
+import pytest
+
 from apk_hacker.application.services.hook_plan_service import HookPlanService
 from apk_hacker.domain.models.execution import ExecutionRequest
 from apk_hacker.domain.models.hook_plan import HookPlanSource
 from apk_hacker.domain.models.indexes import MethodIndexEntry
+from apk_hacker.infrastructure.execution.backend import ExecutionBackendUnavailable
 from apk_hacker.infrastructure.execution.real_backend import RealExecutionBackend
 
 
@@ -497,18 +500,17 @@ def get_usb_device(timeout: int | None = None):
         },
     )
 
-    events = backend.execute(
-        ExecutionRequest(
-            job_id="job-1",
-            plan=plan,
-            package_name="com.demo.shell",
+    with pytest.raises(ExecutionBackendUnavailable, match="usb device unavailable") as exc_info:
+        backend.execute(
+            ExecutionRequest(
+                job_id="job-1",
+                plan=plan,
+                package_name="com.demo.shell",
+            )
         )
-    )
 
-    assert len(events) == 1
-    assert events[0].event_type == "frida_session_error"
-    assert events[0].method_name == "device_connect"
-    assert "usb device unavailable" in (events[0].return_value or "")
+    assert exc_info.value.error_code == "device_connect_failed"
+    assert exc_info.value.message == "usb device unavailable"
 
 
 def test_packaged_frida_session_backend_forwards_script_error_with_source(tmp_path: Path) -> None:
@@ -592,18 +594,17 @@ def get_usb_device(timeout: int | None = None) -> FakeDevice:
         },
     )
 
-    events = backend.execute(
-        ExecutionRequest(
-            job_id="job-1",
-            plan=plan,
-            package_name="com.demo.shell",
+    with pytest.raises(ExecutionBackendUnavailable, match="boom") as exc_info:
+        backend.execute(
+            ExecutionRequest(
+                job_id="job-1",
+                plan=plan,
+                package_name="com.demo.shell",
+            )
         )
-    )
 
-    assert len(events) == 1
-    assert events[0].event_type == "frida_script_error"
-    assert events[0].stacktrace == "boom"
-    assert events[0].raw_payload["source_script"] == "01_custom-one.js"
+    assert exc_info.value.error_code == "frida_script_error"
+    assert exc_info.value.message == "boom"
 
 
 def test_packaged_frida_session_backend_can_bootstrap_frida_server_before_retry(tmp_path: Path) -> None:

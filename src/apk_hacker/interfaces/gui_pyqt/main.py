@@ -1,16 +1,39 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
+import sys
 from pathlib import Path
 from typing import Sequence
 
-from PyQt6.QtWidgets import QApplication
-
 from apk_hacker.application.services.execution_runtime import build_execution_backend_env
 from apk_hacker.application.services.workspace_registry_service import default_workspace_data_root
-from apk_hacker.infrastructure.execution.real_backend import RealExecutionBackend
-from apk_hacker.interfaces.gui_pyqt.main_window import MainWindow
-from apk_hacker.interfaces.gui_pyqt.viewmodels import WorkbenchController
+
+
+LEGACY_GUI_DEPRECATION_MESSAGE = (
+    "旧版 PyQt 工作台已退役，当前唯一继续演进的桌面主线是 Tauri + React + FastAPI。\n"
+    "请改用 `npm run dev:tauri` 启动桌面工作台，"
+    "或使用 `uv run apk-hacker` 单独启动本地 API。"
+)
+
+
+@dataclass(frozen=True, slots=True)
+class LegacyGuiCompatWindow:
+    sample_path: Path | None
+    jadx_gui_path: str | None
+    scripts_root: Path
+    db_root: Path
+    fixture_root: Path | None
+    jadx_sources_root: Path | None
+    execution_backend_env: dict[str, str]
+    real_backend_command: str | None
+    deprecation_message: str = LEGACY_GUI_DEPRECATION_MESSAGE
+
+    def show(self) -> None:
+        return None
+
+    def close(self) -> None:
+        return None
 
 
 def _build_execution_backend_env(args: argparse.Namespace) -> dict[str, str]:
@@ -23,7 +46,12 @@ def _build_execution_backend_env(args: argparse.Namespace) -> dict[str, str]:
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Launch the APKHacker PyQt6 workbench.")
+    parser = argparse.ArgumentParser(
+        description=(
+            "Legacy compatibility entrypoint for APKHacker. "
+            "The PyQt workbench has been retired during the Tauri + React + FastAPI migration."
+        )
+    )
     parser.add_argument("--sample", type=Path, help="Optional sample path to prefill in the task center.")
     parser.add_argument("--jadx-gui-path", help="Optional local jadx-gui executable path.")
     parser.add_argument("--scripts-root", type=Path, help="Optional custom Frida scripts directory.")
@@ -48,57 +76,29 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(list(argv) if argv is not None else None)
 
 
-def build_window(args: argparse.Namespace) -> MainWindow:
+def build_window(args: argparse.Namespace) -> LegacyGuiCompatWindow:
     execution_backend_env = _build_execution_backend_env(args)
     repo_root = Path(__file__).resolve().parents[4]
     resolved_db_root = args.db_root or default_workspace_data_root(repo_root)
     resolved_scripts_root = args.scripts_root or (
         repo_root / "user_data" / "frida_plugins" / "custom"
     )
-    controller = None
-    if args.real_backend_command:
-        controller = WorkbenchController(
-            fixture_root=args.fixture_root,
-            jadx_sources_root=args.jadx_sources_root,
-            scripts_root=resolved_scripts_root,
-            db_root=resolved_db_root,
-            execution_backend_env=execution_backend_env,
-            execution_backends={
-                "real_device": RealExecutionBackend(
-                    command=args.real_backend_command,
-                    extra_env=execution_backend_env,
-                    artifact_root=resolved_db_root / "execution-runs",
-                ),
-            },
-        )
-    elif execution_backend_env:
-        controller = WorkbenchController(
-            fixture_root=args.fixture_root,
-            jadx_sources_root=args.jadx_sources_root,
-            scripts_root=resolved_scripts_root,
-            db_root=resolved_db_root,
-            execution_backend_env=execution_backend_env,
-        )
-
-    window = MainWindow(
-        fixture_root=args.fixture_root,
-        jadx_sources_root=args.jadx_sources_root,
+    return LegacyGuiCompatWindow(
+        sample_path=args.sample,
+        jadx_gui_path=args.jadx_gui_path,
         scripts_root=resolved_scripts_root,
         db_root=resolved_db_root,
-        jadx_gui_path=args.jadx_gui_path,
-        controller=controller,
+        fixture_root=args.fixture_root,
+        jadx_sources_root=args.jadx_sources_root,
+        execution_backend_env=execution_backend_env,
+        real_backend_command=args.real_backend_command,
     )
-    if args.sample is not None:
-        window.task_center.sample_path_input.setText(str(args.sample))
-    return window
 
 
 def run(argv: Sequence[str] | None = None) -> int:
-    args = parse_args(argv)
-    app = QApplication.instance() or QApplication([])
-    window = build_window(args)
-    window.show()
-    return app.exec()
+    build_window(parse_args(argv))
+    print(LEGACY_GUI_DEPRECATION_MESSAGE, file=sys.stderr)
+    return 1
 
 
 def main() -> int:
