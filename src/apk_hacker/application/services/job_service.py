@@ -1,16 +1,21 @@
 from __future__ import annotations
 
 import json
+from dataclasses import asdict, replace
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
 from apk_hacker.application.services.hook_plan_service import HookPlanService
 from apk_hacker.application.services.static_adapter import StaticAdapter
+from apk_hacker.application.services.static_result_normalizer import StaticResultNormalizer
 from apk_hacker.domain.models.execution import ExecutionRequest
+from apk_hacker.domain.models.artifact import ArtifactManifest
 from apk_hacker.domain.models.indexes import MethodIndex
 from apk_hacker.domain.models.job import AnalysisJob
 from apk_hacker.domain.models.static_inputs import StaticInputs
+from apk_hacker.domain.models.static_result import StaticResult
+from apk_hacker.domain.models.config import coerce_artifact_paths
 from apk_hacker.domain.services.method_indexer import JavaMethodIndexer
 from apk_hacker.infrastructure.execution.fake_backend import FakeExecutionBackend
 from apk_hacker.infrastructure.persistence.hook_log_store import HookLogStore
@@ -41,6 +46,8 @@ class StaticWorkspaceBundle:
     job: AnalysisJob
     static_inputs: StaticInputs
     method_index: MethodIndex
+    static_result: StaticResult | None = None
+    artifact_manifest: ArtifactManifest | None = None
 
 
 class JobService:
@@ -51,6 +58,7 @@ class JobService:
         method_indexer: JavaMethodIndexer | None = None,
         hook_plan_service: HookPlanService | None = None,
         fake_backend: FakeExecutionBackend | None = None,
+        static_result_normalizer: StaticResultNormalizer | None = None,
     ) -> None:
         self._jobs: dict[str, AnalysisJob] = {}
         self._static_analyzer = static_analyzer or StaticAnalyzer()
@@ -58,6 +66,7 @@ class JobService:
         self._method_indexer = method_indexer or JavaMethodIndexer()
         self._hook_plan_service = hook_plan_service or HookPlanService()
         self._fake_backend = fake_backend or FakeExecutionBackend()
+        self._static_result_normalizer = static_result_normalizer or StaticResultNormalizer()
 
     def build_method_index(
         self,
@@ -108,10 +117,34 @@ class JobService:
             if artifacts.jadx_sources_dir is not None
             else _empty_method_index()
         )
+        normalized = self._static_result_normalizer.normalize(
+            sample_path=sample_path,
+            artifacts=artifacts,
+            analysis_report=analysis_report,
+            callback_config=callback_config,
+            static_inputs=static_inputs,
+            method_index=method_index,
+        )
+        static_inputs = replace(
+            static_inputs,
+            artifact_paths=coerce_artifact_paths(
+                {
+                    **asdict(static_inputs.artifact_paths),
+                    "artifact_manifest": normalized.manifest_path,
+                    "static_result": normalized.static_result_path,
+                    "findings_jsonl": normalized.findings_path,
+                    "evidence_jsonl": normalized.evidence_path,
+                    "method_index_jsonl": normalized.method_index_path,
+                    "class_index_jsonl": normalized.class_index_path,
+                }
+            ),
+        )
         return StaticWorkspaceBundle(
             job=job,
             static_inputs=static_inputs,
             method_index=method_index,
+            static_result=normalized.static_result,
+            artifact_manifest=normalized.manifest,
         )
 
     def load_static_workspace(

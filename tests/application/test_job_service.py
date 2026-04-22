@@ -75,6 +75,18 @@ def test_job_service_loads_static_workspace_from_real_artifacts(tmp_path: Path) 
     assert static_inputs.artifact_paths.analysis_report == (fixture_root / "sample_analysis.json")
     assert static_inputs.artifact_paths.static_markdown_report == (output_root / "报告" / "sample" / "report.md")
     assert static_inputs.artifact_paths.static_docx_report == (output_root / "报告" / "sample" / "report.docx")
+    assert static_inputs.artifact_paths.artifact_manifest == (output_root / "normalized" / "artifact-manifest.json").resolve()
+    assert static_inputs.artifact_paths.static_result == (output_root / "normalized" / "static-result.v1.json").resolve()
+    assert static_inputs.artifact_paths.findings_jsonl == (output_root / "normalized" / "findings.jsonl").resolve()
+    assert static_inputs.artifact_paths.evidence_jsonl == (output_root / "normalized" / "evidence.jsonl").resolve()
+    assert static_inputs.artifact_paths.method_index_jsonl == (output_root / "normalized" / "method-index.jsonl").resolve()
+    assert static_inputs.artifact_paths.class_index_jsonl == (output_root / "normalized" / "class-index.jsonl").resolve()
+    assert static_inputs.artifact_paths.artifact_manifest.exists()
+    assert static_inputs.artifact_paths.static_result.exists()
+    assert static_inputs.artifact_paths.findings_jsonl.exists()
+    assert static_inputs.artifact_paths.evidence_jsonl.exists()
+    assert static_inputs.artifact_paths.method_index_jsonl.exists()
+    assert static_inputs.artifact_paths.class_index_jsonl.exists()
     assert len(method_index.methods) == 5
     assert fake_analyzer.calls == [(sample_path, output_root, "auto")]
 
