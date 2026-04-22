@@ -307,7 +307,6 @@ class WorkspaceRuntimeService:
         self._device_inventory_service = device_inventory_service or DeviceInventoryService()
         self._workspace_state_service = workspace_state_service or WorkspaceStateService(self._hook_plan_service)
         self._workspace_hook_plan_service = workspace_hook_plan_service or WorkspaceHookPlanService(
-            state_service=self._workspace_state_service,
             hook_plan_service=self._hook_plan_service,
         )
 
@@ -430,11 +429,12 @@ class WorkspaceRuntimeService:
         record = self._inspection_service.get_detail(case_id)
         saved = self._custom_script_service_for(record.workspace_root).save_script(name, content)
         state = self.get_state(case_id)
-        if any(
-            source.kind == "custom_script" and source.script_path == str(saved.script_path)
-            for source in state.selected_hook_sources
-        ):
-            self._save_state(self._workspace_hook_plan_service.rerender(state))
+        updated_state = self._workspace_hook_plan_service.rerender_if_source_selected(
+            state,
+            source_path=str(saved.script_path),
+        )
+        if updated_state != state:
+            self._save_state(updated_state)
         return saved
 
     def get_custom_script(self, case_id: str, script_id: str) -> tuple[CustomScriptRecord, str]:
@@ -456,22 +456,14 @@ class WorkspaceRuntimeService:
         state = self.get_state(case_id)
         original = service.get_record(script_id)
         updated = service.update_script(script_id, name, content)
-        matched_custom_script = any(
-            source.kind == "custom_script" and source.script_path == str(original.script_path)
-            for source in state.selected_hook_sources
+        updated_state = self._workspace_hook_plan_service.replace_custom_script_source(
+            state,
+            old_script_path=str(original.script_path),
+            new_script_name=updated.name,
+            new_script_path=str(updated.script_path),
         )
-        if matched_custom_script:
-            selected_hook_sources = tuple(
-                (
-                    HookPlanSource.from_custom_script(updated.name, str(updated.script_path))
-                    if source.kind == "custom_script" and source.script_path == str(original.script_path)
-                    else source
-                )
-                for source in state.selected_hook_sources
-            )
-            self._save_state(
-                self._workspace_hook_plan_service.replace_sources(state, selected_hook_sources)
-            )
+        if updated_state != state:
+            self._save_state(updated_state)
         return updated
 
     def delete_custom_script(self, case_id: str, script_id: str) -> tuple[CustomScriptRecord, WorkspaceRuntimeState]:
@@ -479,13 +471,11 @@ class WorkspaceRuntimeService:
         service = self._custom_script_service_for(record.workspace_root)
         state = self.get_state(case_id)
         deleted = service.delete_script(script_id)
-        selected_hook_sources = tuple(
-            source
-            for source in state.selected_hook_sources
-            if not (source.kind == "custom_script" and source.script_path == str(deleted.script_path))
-        )
         return deleted, self._save_state(
-            self._workspace_hook_plan_service.replace_sources(state, selected_hook_sources)
+            self._workspace_hook_plan_service.remove_custom_script_source(
+                state,
+                script_path=str(deleted.script_path),
+            )
         )
 
     def add_method_to_plan(self, case_id: str, method: MethodIndexEntry) -> WorkspaceRuntimeState:

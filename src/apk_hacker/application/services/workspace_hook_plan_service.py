@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 from apk_hacker.application.services.hook_plan_service import HookPlanService
-from apk_hacker.application.services.workspace_state_service import WorkspaceStateService
+from apk_hacker.application.services.hook_plan_service import stable_hook_item_id
 from apk_hacker.application.services.workspace_runtime_state import WorkspaceRuntimeState
 from apk_hacker.domain.models.hook_plan import HookPlan
 from apk_hacker.domain.models.hook_plan import HookPlanSource
@@ -11,12 +11,7 @@ from apk_hacker.domain.models.indexes import MethodIndexEntry
 
 
 class WorkspaceHookPlanService:
-    def __init__(
-        self,
-        state_service: WorkspaceStateService | None = None,
-        hook_plan_service: HookPlanService | None = None,
-    ) -> None:
-        self._state_service = state_service
+    def __init__(self, hook_plan_service: HookPlanService | None = None) -> None:
         self._hook_plan_service = hook_plan_service or HookPlanService()
 
     def rerender(self, state: WorkspaceRuntimeState) -> WorkspaceRuntimeState:
@@ -27,6 +22,11 @@ class WorkspaceHookPlanService:
                 previous_plan=state.rendered_hook_plan,
             ),
         )
+
+    def rerender_if_source_selected(self, state: WorkspaceRuntimeState, *, source_path: str) -> WorkspaceRuntimeState:
+        if any(source.kind == "custom_script" and source.script_path == source_path for source in state.selected_hook_sources):
+            return self.rerender(state)
+        return state
 
     def add_method_source(self, state: WorkspaceRuntimeState, method: MethodIndexEntry) -> WorkspaceRuntimeState:
         return self.add_source(state, HookPlanSource.from_method(method))
@@ -43,11 +43,37 @@ class WorkspaceHookPlanService:
     ) -> WorkspaceRuntimeState:
         return self.rerender(replace(state, selected_hook_sources=selected_hook_sources))
 
-    def remove_item(self, state: WorkspaceRuntimeState, item_id: str) -> WorkspaceRuntimeState:
-        remaining = tuple(
+    def replace_custom_script_source(
+        self,
+        state: WorkspaceRuntimeState,
+        *,
+        old_script_path: str,
+        new_script_name: str,
+        new_script_path: str,
+    ) -> WorkspaceRuntimeState:
+        if not any(source.kind == "custom_script" and source.script_path == old_script_path for source in state.selected_hook_sources):
+            return state
+        selected_hook_sources = tuple(
+            HookPlanSource.from_custom_script(new_script_name, new_script_path)
+            if source.kind == "custom_script" and source.script_path == old_script_path
+            else source
+            for source in state.selected_hook_sources
+        )
+        return self.replace_sources(state, selected_hook_sources)
+
+    def remove_custom_script_source(self, state: WorkspaceRuntimeState, *, script_path: str) -> WorkspaceRuntimeState:
+        selected_hook_sources = tuple(
             source
             for source in state.selected_hook_sources
-            if self._hook_plan_service._stable_item_id(source.source_id) != item_id
+            if not (source.kind == "custom_script" and source.script_path == script_path)
+        )
+        if len(selected_hook_sources) == len(state.selected_hook_sources):
+            return state
+        return self.replace_sources(state, selected_hook_sources)
+
+    def remove_item(self, state: WorkspaceRuntimeState, item_id: str) -> WorkspaceRuntimeState:
+        remaining = tuple(
+            source for source in state.selected_hook_sources if stable_hook_item_id(source.source_id) != item_id
         )
         if len(remaining) == len(state.selected_hook_sources):
             raise KeyError(item_id)
