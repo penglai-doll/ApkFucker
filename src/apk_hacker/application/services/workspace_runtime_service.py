@@ -27,20 +27,18 @@ from apk_hacker.application.services.traffic_capture_service import infer_traffi
 from apk_hacker.application.services.traffic_capture_service import LIVE_CAPTURE_PROVENANCE_KIND
 from apk_hacker.application.services.traffic_capture_service import MANUAL_HAR_PROVENANCE_KIND
 from apk_hacker.application.services.traffic_capture_service import TrafficCaptureService
+from apk_hacker.application.services.workspace_hook_plan_service import WorkspaceHookPlanService
 from apk_hacker.application.services.workspace_inspection_service import CaseNotFoundError
 from apk_hacker.application.services.workspace_inspection_service import WorkspaceInspectionRecord
 from apk_hacker.application.services.workspace_inspection_service import WorkspaceInspectionService
 from apk_hacker.application.services.workspace_registry_service import WorkspaceRegistryService
-from apk_hacker.application.services.workspace_runtime_state import build_default_runtime_state
+from apk_hacker.application.services.workspace_state_service import WorkspaceStateService
 from apk_hacker.application.services.workspace_runtime_state import ExecutionHistoryEntry
-from apk_hacker.application.services.workspace_runtime_state import load_workspace_runtime_state
 from apk_hacker.application.services.workspace_runtime_state import normalize_path
-from apk_hacker.application.services.workspace_runtime_state import save_workspace_runtime_state
 from apk_hacker.application.services.workspace_runtime_state import WorkspaceRuntimeState
 from apk_hacker.domain.models.execution import ExecutionRequest
 from apk_hacker.domain.models.execution import ExecutionRuntimeOptions
 from apk_hacker.domain.models.hook_event import HookEvent
-from apk_hacker.domain.models.hook_plan import HookPlan
 from apk_hacker.domain.models.hook_plan import HookPlanSource
 from apk_hacker.domain.models.traffic import TrafficCapture
 from apk_hacker.domain.models.traffic import TrafficCaptureSummary
@@ -69,14 +67,6 @@ def _build_runtime_env(runtime_options: ExecutionRuntimeOptions | None) -> dict[
         frida_server_remote_path=frida_server_remote_path or None,
         frida_session_seconds=parsed_session_seconds,
     )
-
-
-def _source_is_plannable(source: HookPlanSource) -> bool:
-    if source.method is not None:
-        return True
-    if source.kind == "template_hook" and source.template_id is not None and source.template_name is not None:
-        return True
-    return source.kind == "custom_script" and source.script_name is not None and source.script_path is not None
 
 
 def _now_iso() -> str:
@@ -298,6 +288,8 @@ class WorkspaceRuntimeService:
         real_device_command: str | None = None,
         environment_service: EnvironmentService | None = None,
         device_inventory_service: DeviceInventoryService | None = None,
+        workspace_state_service: WorkspaceStateService | None = None,
+        workspace_hook_plan_service: WorkspaceHookPlanService | None = None,
     ) -> None:
         self._registry_service = registry_service
         self._default_workspace_root = default_workspace_root
@@ -313,6 +305,11 @@ class WorkspaceRuntimeService:
         self._real_device_command = real_device_command
         self._environment_service = environment_service or EnvironmentService()
         self._device_inventory_service = device_inventory_service or DeviceInventoryService()
+        self._workspace_state_service = workspace_state_service or WorkspaceStateService(self._hook_plan_service)
+        self._workspace_hook_plan_service = workspace_hook_plan_service or WorkspaceHookPlanService(
+            state_service=self._workspace_state_service,
+            hook_plan_service=self._hook_plan_service,
+        )
 
     def get_state(self, case_id: str) -> WorkspaceRuntimeState:
         record = self._inspection_service.get_detail(case_id)
@@ -437,15 +434,7 @@ class WorkspaceRuntimeService:
             source.kind == "custom_script" and source.script_path == str(saved.script_path)
             for source in state.selected_hook_sources
         ):
-            self._save_state(
-                replace(
-                    state,
-                    rendered_hook_plan=self._hook_plan_service.plan_for_sources(
-                        list(state.selected_hook_sources),
-                        previous_plan=state.rendered_hook_plan,
-                    ),
-                )
-            )
+            self._save_state(self._workspace_hook_plan_service.rerender(state))
         return saved
 
     def get_custom_script(self, case_id: str, script_id: str) -> tuple[CustomScriptRecord, str]:
@@ -481,14 +470,7 @@ class WorkspaceRuntimeService:
                 for source in state.selected_hook_sources
             )
             self._save_state(
-                replace(
-                    state,
-                    selected_hook_sources=selected_hook_sources,
-                    rendered_hook_plan=self._hook_plan_service.plan_for_sources(
-                        list(selected_hook_sources),
-                        previous_plan=state.rendered_hook_plan,
-                    ),
-                )
+                self._workspace_hook_plan_service.replace_sources(state, selected_hook_sources)
             )
         return updated
 
@@ -503,18 +485,12 @@ class WorkspaceRuntimeService:
             if not (source.kind == "custom_script" and source.script_path == str(deleted.script_path))
         )
         return deleted, self._save_state(
-            replace(
-                state,
-                selected_hook_sources=selected_hook_sources,
-                rendered_hook_plan=self._hook_plan_service.plan_for_sources(
-                    list(selected_hook_sources),
-                    previous_plan=state.rendered_hook_plan,
-                ),
-            )
+            self._workspace_hook_plan_service.replace_sources(state, selected_hook_sources)
         )
 
     def add_method_to_plan(self, case_id: str, method: MethodIndexEntry) -> WorkspaceRuntimeState:
-        return self._mutate_selected_sources(case_id, HookPlanSource.from_method(method))
+        state = self.get_state(case_id)
+        return self._save_state(self._workspace_hook_plan_service.add_method_source(state, method))
 
     def add_recommendation_to_plan(self, case_id: str, recommendation_id: str) -> WorkspaceRuntimeState:
         record = self._inspection_service.get_detail(case_id)
@@ -574,33 +550,11 @@ class WorkspaceRuntimeService:
 
     def remove_hook_plan_item(self, case_id: str, item_id: str) -> WorkspaceRuntimeState:
         state = self.get_state(case_id)
-        remaining = tuple(
-            source
-            for source in state.selected_hook_sources
-            if self._hook_plan_service._stable_item_id(source.source_id) != item_id
-        )
-        if len(remaining) == len(state.selected_hook_sources):
-            raise KeyError(item_id)
-        return self._save_state(
-            replace(
-                state,
-                selected_hook_sources=remaining,
-                rendered_hook_plan=self._hook_plan_service.plan_for_sources(
-                    list(remaining),
-                    previous_plan=state.rendered_hook_plan,
-                ),
-            )
-        )
+        return self._save_state(self._workspace_hook_plan_service.remove_item(state, item_id))
 
     def clear_hook_plan(self, case_id: str) -> WorkspaceRuntimeState:
         state = self.get_state(case_id)
-        return self._save_state(
-            replace(
-                state,
-                selected_hook_sources=(),
-                rendered_hook_plan=HookPlan(items=()),
-            )
-        )
+        return self._save_state(self._workspace_hook_plan_service.clear(state))
 
     def update_hook_plan_item(
         self,
@@ -610,51 +564,13 @@ class WorkspaceRuntimeService:
         enabled: bool | None = None,
         inject_order: int | None = None,
     ) -> WorkspaceRuntimeState:
-        if enabled is None and inject_order is None:
-            raise ValueError("At least one hook plan field must be updated.")
-
         state = self.get_state(case_id)
-        current_items = list(state.rendered_hook_plan.items)
-        current_index = next((index for index, item in enumerate(current_items) if item.item_id == item_id), None)
-        if current_index is None:
-            raise KeyError(item_id)
-        if inject_order is not None and not 1 <= inject_order <= len(current_items):
-            raise ValueError("Hook plan order is out of range.")
-
-        updated_item = current_items[current_index]
-        if enabled is not None:
-            updated_item = replace(updated_item, enabled=enabled)
-        current_items[current_index] = updated_item
-
-        visible_source_indices = [
-            index for index, source in enumerate(state.selected_hook_sources) if _source_is_plannable(source)
-        ]
-        if len(visible_source_indices) < len(current_items):
-            visible_source_indices = visible_source_indices[: len(current_items)]
-        visible_sources = [state.selected_hook_sources[index] for index in visible_source_indices]
-
-        if inject_order is not None:
-            target_index = inject_order - 1
-            moved_item = current_items.pop(current_index)
-            current_items.insert(target_index, moved_item)
-            if current_index < len(visible_sources):
-                source = visible_sources.pop(current_index)
-                visible_sources.insert(target_index, source)
-
-        normalized_items = tuple(
-            replace(item, inject_order=index)
-            for index, item in enumerate(current_items, start=1)
-        )
-
-        selected_hook_sources = list(state.selected_hook_sources)
-        for slot, source in zip(visible_source_indices, visible_sources, strict=False):
-            selected_hook_sources[slot] = source
-
         return self._save_state(
-            replace(
+            self._workspace_hook_plan_service.update_item(
                 state,
-                selected_hook_sources=tuple(selected_hook_sources),
-                rendered_hook_plan=self._hook_plan_service.render_existing_plan(HookPlan(items=normalized_items)),
+                item_id,
+                enabled=enabled,
+                inject_order=inject_order,
             )
         )
 
@@ -1075,22 +991,10 @@ class WorkspaceRuntimeService:
 
     def _mutate_selected_sources(self, case_id: str, source: HookPlanSource) -> WorkspaceRuntimeState:
         state = self.get_state(case_id)
-        if any(existing.source_id == source.source_id for existing in state.selected_hook_sources):
-            return state
-        selected_hook_sources = (*state.selected_hook_sources, source)
-        return self._save_state(
-            replace(
-                state,
-                selected_hook_sources=selected_hook_sources,
-                rendered_hook_plan=self._hook_plan_service.plan_for_sources(
-                    list(selected_hook_sources),
-                    previous_plan=state.rendered_hook_plan,
-                ),
-            )
-        )
+        return self._save_state(self._workspace_hook_plan_service.add_source(state, source))
 
     def _state_path(self, workspace_root: Path) -> Path:
-        return workspace_root / "workspace-runtime.json"
+        return self._workspace_state_service.state_path(workspace_root)
 
     def _traffic_capture_summary_path(self, workspace_root: Path) -> Path:
         return workspace_root / "evidence" / "traffic" / "traffic-capture.json"
@@ -1117,28 +1021,13 @@ class WorkspaceRuntimeService:
 
     def _load_runtime_state_for(self, case_id: str) -> WorkspaceRuntimeState:
         workspace_root = self._locate_workspace_root(case_id)
-        return load_workspace_runtime_state(
-            case_id=case_id,
-            workspace_root=workspace_root,
-            path=self._state_path(workspace_root),
-            hook_plan_service=self._hook_plan_service,
-        )
+        return self._workspace_state_service.load_for_case(case_id, workspace_root)
 
     def _load_state(self, record: WorkspaceInspectionRecord) -> WorkspaceRuntimeState:
-        path = self._state_path(record.workspace_root)
-        state = load_workspace_runtime_state(
-            case_id=record.case_id,
-            workspace_root=record.workspace_root,
-            path=path,
-            hook_plan_service=self._hook_plan_service,
-        )
-        if not path.exists():
-            return build_default_runtime_state(record.case_id, record.workspace_root)
-        return state
+        return self._workspace_state_service.load_from_record(record)
 
     def _save_state(self, state: WorkspaceRuntimeState) -> WorkspaceRuntimeState:
-        path = self._state_path(state.workspace_root)
-        return save_workspace_runtime_state(state, path)
+        return self._workspace_state_service.save(state)
 
     def _replace_current_execution_history(
         self,
