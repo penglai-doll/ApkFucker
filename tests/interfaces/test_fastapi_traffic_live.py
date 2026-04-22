@@ -248,6 +248,7 @@ def test_live_traffic_start_and_stop_imports_capture_and_persists_runtime(
     assert stopped_runtime["traffic_capture_flow_count"] == 2
     assert stopped_runtime["traffic_capture_suspicious_count"] == 1
     assert Path(stopped_runtime["traffic_capture_summary_path"]).is_file()
+    assert (case_root / "evidence" / "traffic" / "traffic-flows.sqlite3").is_file()
 
     traffic_response = client.get(f"/api/cases/{case_id}/traffic")
     assert traffic_response.status_code == 200
