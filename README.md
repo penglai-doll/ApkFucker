@@ -8,7 +8,7 @@
 
 - `Tauri + React` 是唯一继续演进的桌面工作台
 - `FastAPI` 是唯一应用契约与状态编排入口
-- `PyQt6` 已冻结，只作为迁移期参考实现，后续将淘汰
+- `PyQt6` 工作台已退役，当前只保留兼容/弃用提示入口，后续会完全移除
 - 新增功能默认只允许落在 `API + React` 主线，不再向 PyQt 回填
 
 当前版本重点是把可测试的主闭环先跑通，并把旧工作台能力迁移到新主线：
@@ -80,7 +80,7 @@ src/apk_hacker/
 - `domain` 放领域模型与核心业务语义。
 - `application` 放工作台用例编排；样本导入、Hook 计划、执行、流量、报告等主流程都以这里为中心演进。
 - `infrastructure` 放持久化、模板渲染、执行后端适配等基础设施实现。
-- `interfaces` 放 FastAPI、React/Tauri、兼容入口等对外接口层。
+- `interfaces` 放 FastAPI、CLI 与旧入口兼容层等 Python 侧对外接口；桌面工作台前端位于 `frontend/`，Tauri 壳位于 `src-tauri/`。
 - `static_engine` 是遗留静态分析流水线的兼容/集成入口，用来承接现有静态分析能力，而不是新的顶层主架构。
 
 当前收敛重点不是引入另一套 `core/rules/ai/report/sandbox/orchestrator.py` 顶层结构，而是沿着现有仓库结构继续拆分热点服务。当前最需要收敛的运行时热点仍然是 `src/apk_hacker/application/services/workspace_runtime_service.py`，它会继续收敛为一个薄协调层/Facade，把 Hook 计划、执行、流量与报告能力委托给更聚焦的运行时服务。
@@ -460,7 +460,11 @@ uv run apk-hacker-cli \
 - `src/apk_hacker/infrastructure/`
   - 持久化、模板渲染、fake / real 执行后端适配等基础设施实现
 - `src/apk_hacker/interfaces/`
-  - FastAPI、React/Tauri 相关接口，以及旧入口兼容层
+  - FastAPI、CLI 与旧入口兼容层等 Python 侧接口
+- `frontend/`
+  - React 工作台前端
+- `src-tauri/`
+  - Tauri 桌面壳与桌面集成配置
 - `src/apk_hacker/static_engine/`
   - 遗留静态分析流水线的兼容入口，以及现有静态产物集成边界
 - `tests/`
@@ -472,12 +476,12 @@ uv run apk-hacker-cli \
 uv run pytest -q
 ```
 
-当前分支验证结果为：
+建议在当前分支至少执行以下验证：
 
-- Python：`177 passed, 8 skipped`
-- Web：`53 passed`
+- `uv run pytest -q`
+- `npm run typecheck:web`
+- `npm run test:web -- --run`
 - `cargo check --manifest-path src-tauri/Cargo.toml`
-- `npm run build:tauri -- --no-bundle`
 
 ## 注意事项
 
