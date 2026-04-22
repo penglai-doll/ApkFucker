@@ -64,6 +64,27 @@
 - `Script Plan` -> `Hook Studio + Execution Console`
 - `Results Summary` -> `Reports + Evidence + Execution`
 
+## 架构主线
+
+APKHacker 当前唯一继续收敛的仓库架构是：
+
+```text
+src/apk_hacker/
+  domain/
+  application/
+  infrastructure/
+  interfaces/
+  static_engine/
+```
+
+- `domain` 放领域模型与核心业务语义。
+- `application` 放工作台用例编排；样本导入、Hook 计划、执行、流量、报告等主流程都以这里为中心演进。
+- `infrastructure` 放持久化、模板渲染、执行后端适配等基础设施实现。
+- `interfaces` 放 FastAPI、React/Tauri、兼容入口等对外接口层。
+- `static_engine` 是遗留静态分析流水线的兼容/集成入口，用来承接现有静态分析能力，而不是新的顶层主架构。
+
+当前收敛重点不是引入另一套 `core/rules/ai/report/sandbox/orchestrator.py` 顶层结构，而是沿着现有仓库结构继续拆分热点服务。当前最需要收敛的运行时热点仍然是 `src/apk_hacker/application/services/workspace_runtime_service.py`，它会继续收敛为一个薄协调层/Facade，把 Hook 计划、执行、流量与报告能力委托给更聚焦的运行时服务。
+
 ## 运行环境
 
 推荐：
@@ -432,14 +453,16 @@ uv run apk-hacker-cli \
 
 ## 目录说明
 
+- `src/apk_hacker/domain/`
+  - 领域模型、Hook 计划与运行时语义等核心业务对象
+- `src/apk_hacker/application/`
+  - 工作台用例编排与应用服务；`workspace_runtime_service.py` 继续收敛为 facade，由更聚焦的运行时服务承接细节
+- `src/apk_hacker/infrastructure/`
+  - 持久化、模板渲染、fake / real 执行后端适配等基础设施实现
+- `src/apk_hacker/interfaces/`
+  - FastAPI、React/Tauri 相关接口，以及旧入口兼容层
 - `src/apk_hacker/static_engine/`
-  - 第一方静态分析引擎与 JADX 导出契约
-- `src/apk_hacker/application/services/`
-  - 静态适配、Hook 计划、自定义脚本、任务服务
-- `src/apk_hacker/infrastructure/execution/`
-  - fake / real 执行后端抽象
-- `src/apk_hacker/interfaces/gui_pyqt/`
-  - 旧入口兼容 shim，仅保留迁移提示与参数面
+  - 遗留静态分析流水线的兼容入口，以及现有静态产物集成边界
 - `tests/`
   - 单元测试、集成测试、Web/Tauri 回归测试
 
