@@ -21,7 +21,7 @@ from apk_hacker.application.services.environment_service import resolve_ssl_hook
 from apk_hacker.application.services.custom_script_service import CustomScriptRecord
 from apk_hacker.application.services.custom_script_service import CustomScriptService
 from apk_hacker.application.services.hook_plan_service import HookPlanService
-from apk_hacker.application.services.report_export_service import ExportableReport, ReportExportService
+from apk_hacker.application.services.report_export_service import ReportExportService
 from apk_hacker.application.services.traffic_capture_service import LIVE_CAPTURE_PROVENANCE_KIND
 from apk_hacker.application.services.traffic_capture_service import MANUAL_HAR_PROVENANCE_KIND
 from apk_hacker.application.services.traffic_capture_service import TrafficCaptureService
@@ -30,6 +30,8 @@ from apk_hacker.application.services.workspace_inspection_service import CaseNot
 from apk_hacker.application.services.workspace_inspection_service import WorkspaceInspectionRecord
 from apk_hacker.application.services.workspace_inspection_service import WorkspaceInspectionService
 from apk_hacker.application.services.workspace_registry_service import WorkspaceRegistryService
+from apk_hacker.application.services.workspace_report_service import ReportExportResult
+from apk_hacker.application.services.workspace_report_service import WorkspaceReportService
 from apk_hacker.application.services.workspace_state_service import WorkspaceStateService
 from apk_hacker.application.services.workspace_traffic_service import WorkspaceTrafficService
 from apk_hacker.application.services.workspace_runtime_state import ExecutionHistoryEntry
@@ -91,13 +93,6 @@ class ExecutionPreflightResult:
     detail: str
 
 
-@dataclass(frozen=True, slots=True)
-class ReportExportResult:
-    state: WorkspaceRuntimeState
-    report_path: Path
-    static_report_path: Path | None
-
-
 class WorkspaceRuntimeService:
     def __init__(
         self,
@@ -117,6 +112,7 @@ class WorkspaceRuntimeService:
         workspace_state_service: WorkspaceStateService | None = None,
         workspace_hook_plan_service: WorkspaceHookPlanService | None = None,
         workspace_traffic_service: WorkspaceTrafficService | None = None,
+        workspace_report_service: WorkspaceReportService | None = None,
     ) -> None:
         self._registry_service = registry_service
         self._default_workspace_root = default_workspace_root
@@ -125,7 +121,7 @@ class WorkspaceRuntimeService:
             custom_script_service.scripts_root if custom_script_service is not None else None
         )
         self._hook_plan_service = hook_plan_service or HookPlanService()
-        self._report_export_service = report_export_service or ReportExportService()
+        resolved_report_export_service = report_export_service or ReportExportService()
         self._traffic_capture_service = traffic_capture_service or TrafficCaptureService()
         self._case_queue_service = case_queue_service or CaseQueueService()
         self._execution_backend_env = dict(execution_backend_env or {})
@@ -138,6 +134,9 @@ class WorkspaceRuntimeService:
         )
         self._workspace_traffic_service = workspace_traffic_service or WorkspaceTrafficService(
             traffic_capture_service=self._traffic_capture_service,
+        )
+        self._workspace_report_service = workspace_report_service or WorkspaceReportService(
+            report_export_service=resolved_report_export_service,
         )
 
     def get_state(self, case_id: str) -> WorkspaceRuntimeState:
@@ -675,40 +674,13 @@ class WorkspaceRuntimeService:
     def export_report(self, case_id: str) -> ReportExportResult:
         record = self._inspection_service.get_detail(case_id)
         state = self.get_state(case_id)
-        events: tuple[HookEvent, ...] = ()
         traffic_capture = self.get_traffic_capture(case_id)
-        if state.last_execution_db_path is not None and state.last_execution_db_path.exists():
-            events = tuple(HookLogStore(state.last_execution_db_path).list_for_job(record.bundle.job.job_id))
-
-        static_report_path = record.bundle.static_inputs.artifact_paths.static_markdown_report
-        summary_text = (
-            f"当前 Hook Plan 共 {len(state.rendered_hook_plan.items)} 项，"
-            f"最近一次执行产生 {len(events)} 条事件。"
-        )
-        report = ExportableReport(
-            job_id=record.bundle.job.job_id,
-            summary_text=summary_text,
-            sample_path=record.sample_path,
-            static_inputs=record.bundle.static_inputs,
-            hook_plan=state.rendered_hook_plan,
-            hook_events=events,
+        result = self._workspace_report_service.export(
+            record,
+            state,
             traffic_capture=traffic_capture,
-            last_execution_db_path=state.last_execution_db_path,
-            last_execution_bundle_path=state.last_execution_bundle_path,
-            last_execution_status=state.last_execution_status,
-            last_execution_mode=state.last_execution_mode,
-            last_executed_backend_key=state.last_executed_backend_key,
-            last_execution_error_code=state.last_execution_error_code,
-            last_execution_error_message=state.last_execution_error_message,
         )
-        report_path = record.workspace_root / "reports" / f"{case_id}-report.md"
-        exported_path = self._report_export_service.export_markdown(report, report_path)
-        saved_state = self._save_state(replace(state, last_report_path=exported_path))
-        return ReportExportResult(
-            state=saved_state,
-            report_path=exported_path,
-            static_report_path=static_report_path,
-        )
+        return replace(result, state=self._save_state(result.state))
 
     def validate_execution_ready(
         self,
