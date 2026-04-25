@@ -279,7 +279,7 @@ def test_cli_main_prints_json_payload_and_returns_zero(monkeypatch, capsys) -> N
     assert exit_code == 0
     assert payload == {
         "job_id": "job-1",
-        "sample_path": "/tmp/demo.apk",
+        "sample_path": str(Path("/tmp/demo.apk")),
         "summary": "ok",
     }
 

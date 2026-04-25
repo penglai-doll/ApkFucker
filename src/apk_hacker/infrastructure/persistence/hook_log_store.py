@@ -4,6 +4,7 @@ import json
 import sqlite3
 from pathlib import Path
 
+from apk_hacker.domain.models.dynamic_event import DynamicEvent
 from apk_hacker.domain.models.hook_event import HookEvent
 
 
@@ -80,6 +81,9 @@ class HookLogStore:
                 (job_id, limit),
             ).fetchall()
         return list(reversed(self._rows_to_events(rows)))
+
+    def list_dynamic_for_job(self, job_id: str) -> list[DynamicEvent]:
+        return [DynamicEvent.from_hook_event(event) for event in self.list_for_job(job_id)]
 
     @staticmethod
     def _rows_to_events(rows: list[tuple[object, ...]]) -> list[HookEvent]:

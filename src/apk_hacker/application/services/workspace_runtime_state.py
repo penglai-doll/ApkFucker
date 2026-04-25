@@ -4,6 +4,8 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 import json
+import time
+import uuid
 
 from apk_hacker.application.services.hook_plan_service import HookPlanService
 from apk_hacker.domain.models.hook_plan import HookPlan
@@ -87,6 +89,7 @@ def _serialize_source(source: HookPlanSource) -> dict[str, object]:
     payload: dict[str, object] = {
         "source_id": source.source_id,
         "kind": source.kind,
+        "source_kind": source.source_kind,
     }
     if source.method is not None:
         payload["method"] = _serialize_method(source.method)
@@ -113,6 +116,7 @@ def _deserialize_source(payload: object) -> HookPlanSource | None:
     return HookPlanSource(
         source_id=source_id,
         kind=kind,
+        source_kind=str(payload["source_kind"]) if isinstance(payload.get("source_kind"), str) else None,
         method=_deserialize_method(payload.get("method")),
         script_name=str(payload["script_name"]) if isinstance(payload.get("script_name"), str) else None,
         script_path=str(payload["script_path"]) if isinstance(payload.get("script_path"), str) else None,
@@ -162,11 +166,15 @@ def _serialize_plan_item(item: HookPlanItem) -> dict[str, object]:
     return {
         "item_id": item.item_id,
         "kind": item.kind,
+        "source_kind": item.source_kind,
         "enabled": item.enabled,
         "inject_order": item.inject_order,
         "target": _serialize_target(item.target) if item.target is not None else None,
         "render_context": dict(item.render_context),
         "plugin_id": item.plugin_id,
+        "template_id": item.template_id,
+        "evidence_ids": list(item.evidence_ids),
+        "tags": list(item.tags),
     }
 
 
@@ -183,11 +191,15 @@ def _deserialize_plan_item(payload: object) -> HookPlanItem | None:
     return HookPlanItem(
         item_id=item_id,
         kind=kind,
+        source_kind=str(payload["source_kind"]) if isinstance(payload.get("source_kind"), str) else kind,
         enabled=bool(payload.get("enabled", True)),
         inject_order=int(payload.get("inject_order", 0)),
         target=_deserialize_target(payload.get("target")),
         render_context={str(key): value for key, value in render_context.items()},
         plugin_id=str(payload["plugin_id"]) if isinstance(payload.get("plugin_id"), str) else None,
+        template_id=str(payload["template_id"]) if isinstance(payload.get("template_id"), str) else None,
+        evidence_ids=tuple(str(value) for value in payload.get("evidence_ids", []) or []),
+        tags=tuple(str(value) for value in payload.get("tags", []) or []),
     )
 
 
@@ -443,7 +455,16 @@ def save_workspace_runtime_state(state: WorkspaceRuntimeState, path: Path) -> Wo
         "live_traffic_capture_message": state.live_traffic_capture.message,
     }
     path.parent.mkdir(parents=True, exist_ok=True)
-    temp_path = path.with_suffix(f"{path.suffix}.tmp")
+    temp_path = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
     temp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    temp_path.replace(path)
+    for attempt in range(10):
+        try:
+            temp_path.replace(path)
+            break
+        except PermissionError:
+            if attempt == 9:
+                raise
+            time.sleep(0.02)
+    if temp_path.exists():
+        temp_path.unlink(missing_ok=True)
     return replace(state, updated_at=payload["updated_at"])

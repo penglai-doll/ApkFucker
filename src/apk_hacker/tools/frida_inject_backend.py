@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 
 from apk_hacker.tools.frida_bootstrap_backend import (
@@ -40,11 +41,15 @@ def _select_script(scripts_dir: Path) -> Path:
     return candidates[0]
 
 
+def _command_path(name: str) -> str:
+    return shutil.which(name) or name
+
+
 def _build_command(target_package: str, script_path: Path) -> list[str]:
     device_serial = os.environ.get("APKHACKER_DEVICE_SERIAL", "").strip()
     if device_serial:
-        return ["frida", "-D", device_serial, "-f", target_package, "-l", str(script_path)]
-    return ["frida", "-U", "-f", target_package, "-l", str(script_path)]
+        return [_command_path("frida"), "-D", device_serial, "-f", target_package, "-l", str(script_path)]
+    return [_command_path("frida"), "-U", "-f", target_package, "-l", str(script_path)]
 
 
 def _run_injection_probe(command: list[str], warmup_seconds: float) -> str:

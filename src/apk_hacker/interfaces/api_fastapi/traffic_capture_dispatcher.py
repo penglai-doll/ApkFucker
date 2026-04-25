@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import os
 from pathlib import Path
 import shlex
+import signal
 import subprocess
 import uuid
 
@@ -26,6 +27,34 @@ TRAFFIC_CAPTURE_RUNNING_MESSAGE = "实时抓包进行中。"
 TRAFFIC_CAPTURE_STARTED_MESSAGE = "已开始实时抓包。"
 TRAFFIC_CAPTURE_ALREADY_RUNNING_MESSAGE = "实时抓包已在进行中。"
 TRAFFIC_CAPTURE_NOT_RUNNING_MESSAGE = "当前没有正在进行的实时抓包。"
+
+
+def _split_command_template(command_template: str) -> list[str]:
+    parts = shlex.split(command_template, posix=os.name != "nt")
+    if os.name != "nt":
+        return parts
+    return [
+        part[1:-1] if len(part) >= 2 and part[0] == part[-1] and part[0] in {"'", '"'} else part
+        for part in parts
+    ]
+
+
+def _popen_creationflags() -> int:
+    if os.name != "nt":
+        return 0
+    return int(getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
+
+
+def _request_process_stop(process: subprocess.Popen[bytes]) -> None:
+    if os.name == "nt":
+        ctrl_break = getattr(signal, "CTRL_BREAK_EVENT", None)
+        if ctrl_break is not None:
+            try:
+                process.send_signal(ctrl_break)
+                return
+            except OSError:
+                pass
+    process.terminate()
 
 
 @dataclass(slots=True)
@@ -143,6 +172,7 @@ class TrafficCaptureDispatcher:
                 preview_path=preview_path,
                 runtime=runtime,
             ),
+            creationflags=_popen_creationflags(),
         )
         self._sessions[case_id] = _LiveTrafficCaptureSession(
             session_id=session_id,
@@ -183,7 +213,7 @@ class TrafficCaptureDispatcher:
 
         return_code = session.process.poll()
         if return_code is None:
-            session.process.terminate()
+            _request_process_stop(session.process)
             try:
                 return_code = session.process.wait(timeout=5)
             except subprocess.TimeoutExpired:
@@ -216,7 +246,7 @@ class TrafficCaptureDispatcher:
     ) -> list[str]:
         if runtime.command_template is None:
             raise RuntimeError(TRAFFIC_CAPTURE_NOT_CONFIGURED_MESSAGE)
-        parts = shlex.split(runtime.command_template)
+        parts = _split_command_template(runtime.command_template)
         if not parts:
             raise RuntimeError(TRAFFIC_CAPTURE_NOT_CONFIGURED_MESSAGE)
         replacements = {

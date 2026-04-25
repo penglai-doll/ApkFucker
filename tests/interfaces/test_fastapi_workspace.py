@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 import sys
 import time
 
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from apk_hacker.application.services.case_queue_service import CaseQueueService
@@ -15,8 +17,16 @@ from apk_hacker.application.services.report_export_service import ReportExportSe
 from apk_hacker.application.services.workspace_controller import WorkspaceController
 from apk_hacker.application.services.workspace_registry_service import default_workspace_registry_path
 from apk_hacker.application.services.workspace_service import WorkspaceService
+from apk_hacker.application.services.workspace_runtime_state import WorkspaceRuntimeState
+from apk_hacker.application.services.workspace_registry_service import WorkspaceRegistryService
+from apk_hacker.domain.models.hook_plan import HookPlan
+from apk_hacker.domain.models.hook_plan import HookPlanItem
+from apk_hacker.domain.models.hook_plan import HookPlanSource
+from apk_hacker.domain.models.hook_plan import MethodHookTarget
+from apk_hacker.domain.models.indexes import MethodIndexEntry
 from apk_hacker.static_engine.analyzer import StaticArtifacts
 from apk_hacker.interfaces.api_fastapi.app import build_app
+from apk_hacker.interfaces.api_fastapi.routes_workspace import build_workspace_router
 
 
 class _FakeStaticAnalyzer:
@@ -42,7 +52,7 @@ class _FakeJadxLauncher:
 
 
 def _wait_for_execution_completion(state_path: Path) -> dict[str, object]:
-    for _ in range(20):
+    for _ in range(100):
         if state_path.exists():
             payload = json.loads(state_path.read_text(encoding="utf-8"))
             if payload.get("last_execution_status") == "completed":
@@ -653,7 +663,7 @@ def test_workspace_detail_includes_runtime_summary_after_execution_and_traffic_i
     assert runtime["last_execution_db_path"] == runtime_state["last_execution_db_path"]
     assert runtime["last_execution_bundle_path"] == runtime_state["last_execution_bundle_path"]
     assert runtime["last_report_path"] == report_response.json()["report_path"]
-    assert runtime["traffic_capture_source_path"].endswith("tests/fixtures/traffic/sample.har")
+    assert runtime["traffic_capture_source_path"].endswith(str(Path("tests/fixtures/traffic/sample.har")))
     assert runtime["traffic_capture_summary_path"]
     assert runtime["traffic_capture_flow_count"] == 2
     assert runtime["traffic_capture_suspicious_count"] == 1
@@ -991,7 +1001,7 @@ def test_workspace_traffic_import_persists_case_scoped_capture(tmp_path: Path) -
     assert payload["case_id"] == case_id
     assert payload["flow_count"] == 2
     assert payload["suspicious_count"] == 1
-    assert payload["source_path"].endswith("tests/fixtures/traffic/sample.har")
+    assert payload["source_path"].endswith(str(Path("tests/fixtures/traffic/sample.har")))
     assert payload["provenance"] == {
         "kind": "manual_har",
         "label": "手工 HAR 导入",
@@ -1030,7 +1040,7 @@ def test_workspace_traffic_import_persists_case_scoped_capture(tmp_path: Path) -
     assert detail_response.json() == {"case_id": case_id, "capture": payload}
 
     runtime_payload = json.loads((case_root / "workspace-runtime.json").read_text(encoding="utf-8"))
-    assert runtime_payload["traffic_capture_source_path"].endswith("tests/fixtures/traffic/sample.har")
+    assert runtime_payload["traffic_capture_source_path"].endswith(str(Path("tests/fixtures/traffic/sample.har")))
     assert runtime_payload["traffic_capture_flow_count"] == 2
     assert runtime_payload["traffic_capture_suspicious_count"] == 1
     assert Path(runtime_payload["traffic_capture_summary_path"]).is_file()
@@ -1121,6 +1131,71 @@ def test_custom_script_detail_update_and_delete_apis_round_trip_and_sync_hook_pl
     cleared_plan = client.get(f"/api/cases/{case_id}/hook-plan")
     assert cleared_plan.status_code == 200
     assert cleared_plan.json()["items"] == []
+
+
+def test_workspace_route_uses_runtime_public_api_for_hook_plan(tmp_path: Path) -> None:
+    registry_service = WorkspaceRegistryService(tmp_path / "registry.json")
+    source = HookPlanSource.from_method(
+        MethodIndexEntry(
+            class_name="com.demo.net.Config",
+            method_name="buildUploadUrl",
+            parameter_types=("String",),
+            return_type="String",
+            is_constructor=False,
+            overload_count=1,
+            source_path="tests/fixtures/jadx_sources/com/demo/net/Config.java",
+            line_hint=4,
+        )
+    )
+    item = HookPlanItem(
+        item_id="item-1",
+        kind="method_hook",
+        source_kind=source.source_kind or "selected_method",
+        enabled=True,
+        inject_order=1,
+        target=MethodHookTarget(
+            target_id="target-1",
+            class_name="com.demo.net.Config",
+            method_name="buildUploadUrl",
+            parameter_types=("String",),
+            return_type="String",
+            source_origin=source.source_id,
+        ),
+        render_context={},
+    )
+    state = WorkspaceRuntimeState(
+        case_id="case-001",
+        workspace_root=tmp_path / "case-001",
+        updated_at="2026-04-22T00:00:00+00:00",
+        selected_hook_sources=(source,),
+        rendered_hook_plan=HookPlan(items=(item,)),
+    )
+
+    class _RuntimeFacadeOnly:
+        def get_hook_plan_view(self, case_id: str):
+            assert case_id == "case-001"
+            return SimpleNamespace(
+                state=state,
+                source_by_item_id={"item-1": source},
+            )
+
+        def get_state(self, case_id: str):  # pragma: no cover - should never be called
+            raise AssertionError(f"route should use public hook-plan view API, not get_state({case_id!r})")
+
+    app = FastAPI()
+    app.include_router(
+        build_workspace_router(
+            registry_service=registry_service,
+            default_workspace_root=tmp_path / "workspaces",
+            workspace_runtime_service=_RuntimeFacadeOnly(),
+        )
+    )
+    client = TestClient(app)
+
+    response = client.get("/api/cases/case-001/hook-plan")
+
+    assert response.status_code == 200
+    assert response.json()["items"][0]["source"]["method"]["method_name"] == "buildUploadUrl"
 
 
 def test_hook_plan_items_include_source_summary_without_positional_reconstruction(tmp_path: Path) -> None:

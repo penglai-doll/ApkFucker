@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import signal
 import subprocess
 import sys
-import time
 
 
 def test_demo_live_capture_writes_har_on_shutdown(tmp_path: Path) -> None:
@@ -13,13 +13,19 @@ def test_demo_live_capture_writes_har_on_shutdown(tmp_path: Path) -> None:
     process = subprocess.Popen(
         [sys.executable, "-m", "apk_hacker.tools.demo_live_capture", str(output_path)],
         stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
+        text=True,
+        creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) if os.name == "nt" else 0,
     )
 
     try:
-        time.sleep(0.1)
-        process.send_signal(signal.SIGTERM)
+        assert process.stdout is not None
+        assert process.stdout.readline().strip() == "demo-live-capture-ready"
+        if os.name == "nt":
+            process.send_signal(signal.CTRL_BREAK_EVENT)
+        else:
+            process.send_signal(signal.SIGTERM)
         return_code = process.wait(timeout=5)
     finally:
         if process.poll() is None:

@@ -17,6 +17,7 @@ def test_fake_backend_emits_hook_events() -> None:
             HookPlanItem(
                 item_id="item-1",
                 kind="method_hook",
+                source_kind="selected_method",
                 enabled=True,
                 inject_order=1,
                 target=target,
@@ -46,6 +47,7 @@ def test_fake_backend_skips_disabled_and_unsupported_targetless_items() -> None:
             HookPlanItem(
                 item_id="item-1",
                 kind="method_hook",
+                source_kind="selected_method",
                 enabled=False,
                 inject_order=1,
                 target=target,
@@ -55,6 +57,7 @@ def test_fake_backend_skips_disabled_and_unsupported_targetless_items() -> None:
             HookPlanItem(
                 item_id="item-2",
                 kind="placeholder",
+                source_kind="placeholder",
                 enabled=True,
                 inject_order=2,
                 target=None,
@@ -73,6 +76,7 @@ def test_fake_backend_emits_custom_script_events() -> None:
             HookPlanItem(
                 item_id="item-1",
                 kind="custom_script",
+                source_kind="custom_script",
                 enabled=True,
                 inject_order=1,
                 target=None,
@@ -107,6 +111,7 @@ def test_fake_backend_respects_inject_order_when_plan_items_are_unsorted() -> No
             HookPlanItem(
                 item_id="item-2",
                 kind="method_hook",
+                source_kind="selected_method",
                 enabled=True,
                 inject_order=2,
                 target=target,
@@ -116,6 +121,7 @@ def test_fake_backend_respects_inject_order_when_plan_items_are_unsorted() -> No
             HookPlanItem(
                 item_id="item-1",
                 kind="custom_script",
+                source_kind="custom_script",
                 enabled=True,
                 inject_order=1,
                 target=None,
@@ -140,6 +146,7 @@ def test_fake_backend_emits_template_hook_events() -> None:
             HookPlanItem(
                 item_id="item-1",
                 kind="template_hook",
+                source_kind="framework_plugin",
                 enabled=True,
                 inject_order=1,
                 target=None,

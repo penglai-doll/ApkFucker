@@ -11,7 +11,7 @@ def test_job_service_creates_job_record() -> None:
     job = service.create_job(Path("/samples/demo.apk"))
 
     assert job.status == "queued"
-    assert job.input_target == "/samples/demo.apk"
+    assert job.input_target == str(Path("/samples/demo.apk"))
     assert service.get_job(job.job_id) == job
 
 

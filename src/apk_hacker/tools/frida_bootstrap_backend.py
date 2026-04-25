@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import time
 
@@ -13,6 +14,10 @@ FRIDA_SERVER_BINARY_ENV = "APKHACKER_FRIDA_SERVER_BINARY"
 FRIDA_SERVER_REMOTE_PATH_ENV = "APKHACKER_FRIDA_SERVER_REMOTE_PATH"
 FRIDA_SERVER_START_DELAY_ENV = "APKHACKER_FRIDA_SERVER_START_DELAY"
 DEFAULT_REMOTE_PATH = "/data/local/tmp/frida-server"
+
+
+def _command_path(name: str) -> str:
+    return shutil.which(name) or name
 
 
 def _event(
@@ -40,7 +45,7 @@ def _emit_events(events: list[dict[str, object]]) -> int:
 
 def run_adb(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        ["adb", *args],
+        [_command_path("adb"), *args],
         capture_output=True,
         text=True,
         check=False,

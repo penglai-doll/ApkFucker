@@ -65,6 +65,10 @@ def main() -> int:
 
     signal.signal(signal.SIGTERM, _stop)
     signal.signal(signal.SIGINT, _stop)
+    if hasattr(signal, "SIGBREAK"):
+        signal.signal(signal.SIGBREAK, _stop)
+
+    print("demo-live-capture-ready", flush=True)
 
     try:
         while running:

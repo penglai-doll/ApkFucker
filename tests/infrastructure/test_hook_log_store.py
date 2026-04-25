@@ -76,3 +76,34 @@ def test_hook_log_store_filters_by_job_and_orders_by_timestamp(tmp_path: Path) -
     rows = store.list_for_job("job-1")
 
     assert [row.method_name for row in rows] == ["earlyCall", "lateCall"]
+
+
+def test_hook_log_store_exposes_normalized_dynamic_events(tmp_path: Path) -> None:
+    store = HookLogStore(tmp_path / "hooks.sqlite3")
+    store.insert(
+        HookEvent(
+            timestamp="2026-04-05T00:00:00Z",
+            job_id="job-1",
+            event_type="crypto_call",
+            source="real",
+            class_name="javax.crypto.Cipher",
+            method_name="doFinal",
+            arguments=["plaintext"],
+            return_value="ciphertext",
+            stacktrace="",
+            raw_payload={
+                "event_type": "crypto_call",
+                "hook_type": "crypto",
+                "session_id": "session-1",
+                "source_script": "01_cipher.js",
+            },
+        )
+    )
+
+    rows = store.list_dynamic_for_job("job-1")
+
+    assert len(rows) == 1
+    assert rows[0].hook_type == "crypto"
+    assert rows[0].session_id == "session-1"
+    assert rows[0].source_script == "01_cipher.js"
+    assert rows[0].arguments == ("plaintext",)

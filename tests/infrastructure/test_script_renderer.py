@@ -16,6 +16,7 @@ def test_script_renderer_renders_method_hook_template() -> None:
     item = HookPlanItem(
         item_id="item-1",
         kind="method_hook",
+        source_kind="selected_method",
         enabled=True,
         inject_order=1,
         target=target,
@@ -31,13 +32,16 @@ def test_script_renderer_renders_method_hook_template() -> None:
     rendered = str(plan.items[0].render_context["rendered_script"])
 
     assert 'Java.use("com.demo.net.Config")' in rendered
-    assert 'TargetClass["buildUploadUrl"]' in rendered
+    assert "TargetClass[methodName]" in rendered
+    assert "method_return" in rendered
+    assert "overloads.forEach" in rendered
 
 
 def test_script_renderer_renders_template_hook_template() -> None:
     item = HookPlanItem(
         item_id="item-1",
         kind="template_hook",
+        source_kind="framework_plugin",
         enabled=True,
         inject_order=1,
         target=None,
@@ -52,7 +56,8 @@ def test_script_renderer_renders_template_hook_template() -> None:
     rendered = str(plan.items[0].render_context["rendered_script"])
 
     assert "ssl.okhttp3_unpin" in rendered
-    assert "OkHttp3 SSL unpinning template loaded" in rendered
+    assert "ssl_unpinning_bypass" in rendered
+    assert "OkHttp3 SSL unpinning hooks installed" in rendered
 
 
 def test_script_renderer_loads_custom_script_content(tmp_path: Path) -> None:
@@ -61,6 +66,7 @@ def test_script_renderer_loads_custom_script_content(tmp_path: Path) -> None:
     item = HookPlanItem(
         item_id="item-1",
         kind="custom_script",
+        source_kind="custom_script",
         enabled=True,
         inject_order=1,
         target=None,

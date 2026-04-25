@@ -12,7 +12,6 @@ from apk_hacker.application.services.workspace_inspection_service import CaseNot
 from apk_hacker.application.services.workspace_inspection_service import JadxUnavailableError
 from apk_hacker.application.services.workspace_inspection_service import WorkspaceInspectionService
 from apk_hacker.application.services.workspace_runtime_service import WorkspaceRuntimeService
-from apk_hacker.application.services.hook_plan_service import stable_hook_item_id
 from apk_hacker.application.services.workspace_registry_service import WorkspaceRegistryService
 from apk_hacker.domain.models.hook_advice import HookRecommendation
 from apk_hacker.domain.models.indexes import MethodIndexEntry
@@ -142,13 +141,6 @@ def build_workspace_router(
             notes=target.notes,
         )
 
-    def _source_by_item_id(case_id: str) -> dict[str, object]:
-        state = runtime_service.get_state(case_id)
-        return {
-            stable_hook_item_id(source.source_id): source
-            for source in state.selected_hook_sources
-        }
-
     def _to_workspace_event(case_id: str, event) -> WorkspaceEventResponse:
         message_parts = [f"{event.class_name}.{event.method_name}"]
         if event.return_value:
@@ -214,8 +206,9 @@ def build_workspace_router(
         )
 
     def _to_hook_plan_response(case_id: str):
-        state = runtime_service.get_state(case_id)
-        source_by_item_id = _source_by_item_id(case_id)
+        hook_plan_view = runtime_service.get_hook_plan_view(case_id)
+        state = hook_plan_view.state
+        source_by_item_id = hook_plan_view.source_by_item_id
         return HookPlanResponse(
             case_id=case_id,
             updated_at=state.updated_at,
@@ -456,8 +449,8 @@ def build_workspace_router(
         payload: HookPlanItemMoveRequest,
     ) -> HookPlanResponse:
         try:
-            state = runtime_service.get_state(case_id)
-            current_items = list(state.rendered_hook_plan.items)
+            hook_plan_view = runtime_service.get_hook_plan_view(case_id)
+            current_items = list(hook_plan_view.state.rendered_hook_plan.items)
         except CaseNotFoundError as exc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found") from exc
 

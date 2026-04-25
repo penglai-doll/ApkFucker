@@ -82,7 +82,7 @@ class HookPlanService:
             method.method_name,
             method.parameter_types,
         )
-        source_id = HookPlanSource.from_method(method).source_id
+        source_id = source.source_id
         item_id = stable_hook_item_id(source_id)
         target = MethodHookTarget(
             target_id=item_id,

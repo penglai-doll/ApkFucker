@@ -1,7 +1,38 @@
 Java.perform(function() {
+    function emit(methodName, host) {
+        send(JSON.stringify({
+            "event_type": "ssl_unpinning_bypass",
+            "hook_type": "ssl_unpinning",
+            "class_name": "okhttp3.CertificatePinner",
+            "method_name": methodName,
+            "arguments": [host || ""],
+            "return_value": "bypassed"
+        }));
+    }
+
+    try {
+        var CertificatePinner = Java.use("okhttp3.CertificatePinner");
+        CertificatePinner.check.overloads.forEach(function(overload, overloadIndex) {
+            overload.implementation = function() {
+                var host = arguments.length > 0 && arguments[0] !== null ? arguments[0].toString() : "";
+                emit("check#" + overloadIndex, host);
+                return;
+            };
+        });
+    } catch (error) {
+        send(JSON.stringify({
+            "event_type": "ssl_unpinning_unavailable",
+            "hook_type": "ssl_unpinning",
+            "class_name": "okhttp3.CertificatePinner",
+            "method_name": "check",
+            "return_value": error.toString()
+        }));
+    }
+
     send(JSON.stringify({
-        "hook_type": "template_loaded",
+        "event_type": "template_loaded",
+        "hook_type": "template",
         "template": "ssl.okhttp3_unpin",
-        "message": "OkHttp3 SSL unpinning template loaded"
+        "message": "OkHttp3 SSL unpinning hooks installed"
     }));
 });

@@ -85,7 +85,8 @@ def test_mvp_flow_writes_normalized_static_payloads(tmp_path: Path) -> None:
     assert bundle.static_result is not None
     assert bundle.artifact_manifest is not None
     assert manifest_payload["schema_version"] == "artifact-manifest.v1"
-    assert {artifact["kind"] for artifact in manifest_payload["artifacts"]} >= {
+    artifact_kinds = {artifact["kind"] for artifact in manifest_payload["artifacts"]}
+    assert artifact_kinds >= {
         "normalized.artifact_manifest",
         "normalized.static_result",
         "normalized.findings",
@@ -93,6 +94,8 @@ def test_mvp_flow_writes_normalized_static_payloads(tmp_path: Path) -> None:
         "normalized.method_index",
         "normalized.class_index",
     }
+    assert "legacy.noise_log_json" not in artifact_kinds
+    assert "legacy.report_docx" not in artifact_kinds
     assert static_result_payload["schema_version"] == "static-result.v1"
     assert static_result_payload["package_name"] == "com.demo.shell"
     assert "com.tencent.legu" in static_result_payload["packer_hints"]

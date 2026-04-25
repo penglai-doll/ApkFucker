@@ -1,16 +1,32 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import sys
 import textwrap
 import time
 
 from fastapi.testclient import TestClient
+import pytest
 
 from apk_hacker.application.services.environment_service import EnvironmentService
 from apk_hacker.interfaces.api_fastapi.app import build_app
+from apk_hacker.interfaces.api_fastapi.traffic_capture_dispatcher import _split_command_template
 from apk_hacker.static_engine.analyzer import StaticArtifacts
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows command splitting regression")
+def test_live_capture_command_split_preserves_windows_paths() -> None:
+    parts = _split_command_template(
+        r'"C:\Users\zhong\Python311\python.exe" "C:\tmp\capture helper.py" {output_path}'
+    )
+
+    assert parts == [
+        r"C:\Users\zhong\Python311\python.exe",
+        r"C:\tmp\capture helper.py",
+        "{output_path}",
+    ]
 
 
 class _FakeStaticAnalyzer:
@@ -77,6 +93,8 @@ def _write_live_capture_script(tmp_path: Path, *, fixture_path: Path | None) -> 
                 raise SystemExit(0)
 
             signal.signal(signal.SIGTERM, _flush_and_exit)
+            if hasattr(signal, "SIGBREAK"):
+                signal.signal(signal.SIGBREAK, _flush_and_exit)
 
             while True:
                 time.sleep(0.1)
@@ -141,6 +159,8 @@ def _write_live_capture_preview_script(tmp_path: Path) -> Path:
                 raise SystemExit(0)
 
             signal.signal(signal.SIGTERM, _flush_and_exit)
+            if hasattr(signal, "SIGBREAK"):
+                signal.signal(signal.SIGBREAK, _flush_and_exit)
 
             while True:
                 time.sleep(0.1)
@@ -390,6 +410,8 @@ def test_live_traffic_environment_and_command_placeholders_follow_saved_runtime_
                 raise SystemExit(0)
 
             signal.signal(signal.SIGTERM, _flush_and_exit)
+            if hasattr(signal, "SIGBREAK"):
+                signal.signal(signal.SIGBREAK, _flush_and_exit)
 
             while True:
                 time.sleep(0.1)

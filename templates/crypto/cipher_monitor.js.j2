@@ -1,7 +1,55 @@
 Java.perform(function() {
+    var Cipher = Java.use("javax.crypto.Cipher");
+
+    function stringify(value) {
+        if (value === null || value === undefined) {
+            return "null";
+        }
+        try {
+            return value.toString();
+        } catch (error) {
+            return "<toString failed: " + error + ">";
+        }
+    }
+
+    function hookOverloads(methodName) {
+        Cipher[methodName].overloads.forEach(function(overload, overloadIndex) {
+            overload.implementation = function() {
+                var argsArray = [];
+                for (var index = 0; index < arguments.length; index++) {
+                    argsArray.push(stringify(arguments[index]));
+                }
+                send(JSON.stringify({
+                    "event_type": "crypto_call",
+                    "hook_type": "crypto",
+                    "class_name": "javax.crypto.Cipher",
+                    "method_name": methodName,
+                    "overload_index": overloadIndex,
+                    "arguments": argsArray,
+                    "algorithm": stringify(this.getAlgorithm())
+                }));
+                var ret = overload.apply(this, arguments);
+                send(JSON.stringify({
+                    "event_type": "crypto_return",
+                    "hook_type": "crypto",
+                    "class_name": "javax.crypto.Cipher",
+                    "method_name": methodName,
+                    "overload_index": overloadIndex,
+                    "return_value": stringify(ret),
+                    "algorithm": stringify(this.getAlgorithm())
+                }));
+                return ret;
+            };
+        });
+    }
+
+    hookOverloads("init");
+    hookOverloads("doFinal");
+
     send(JSON.stringify({
-        "hook_type": "template_loaded",
+        "event_type": "template_loaded",
+        "hook_type": "template",
         "template": "crypto.cipher_monitor",
-        "message": "Cipher monitor template loaded"
+        "message": "Cipher monitor hooks installed"
     }));
 });

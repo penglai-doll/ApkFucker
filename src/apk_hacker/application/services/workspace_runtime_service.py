@@ -8,11 +8,9 @@ from pathlib import Path
 from threading import Event
 
 from apk_hacker.application.services.case_queue_service import CaseQueueService
-from apk_hacker.application.services.execution_runtime import build_execution_backend_env
 from apk_hacker.application.services.execution_runtime import build_execution_backend
 from apk_hacker.application.services.execution_runtime import build_execution_runtime_availability
 from apk_hacker.application.services.execution_runtime import ExecutionRouting
-from apk_hacker.application.services.execution_runtime import resolve_execution_routing
 from apk_hacker.application.services.execution_presets import build_execution_preset_statuses
 from apk_hacker.application.services.execution_presets import label_for_preset
 from apk_hacker.application.services.device_inventory_service import DeviceInventoryService
@@ -21,6 +19,7 @@ from apk_hacker.application.services.environment_service import resolve_ssl_hook
 from apk_hacker.application.services.custom_script_service import CustomScriptRecord
 from apk_hacker.application.services.custom_script_service import CustomScriptService
 from apk_hacker.application.services.hook_plan_service import HookPlanService
+from apk_hacker.application.services.hook_plan_service import stable_hook_item_id
 from apk_hacker.application.services.report_export_service import ReportExportService
 from apk_hacker.application.services.traffic_capture_service import LIVE_CAPTURE_PROVENANCE_KIND
 from apk_hacker.application.services.traffic_capture_service import MANUAL_HAR_PROVENANCE_KIND
@@ -30,57 +29,25 @@ from apk_hacker.application.services.workspace_inspection_service import CaseNot
 from apk_hacker.application.services.workspace_inspection_service import WorkspaceInspectionRecord
 from apk_hacker.application.services.workspace_inspection_service import WorkspaceInspectionService
 from apk_hacker.application.services.workspace_registry_service import WorkspaceRegistryService
+from apk_hacker.application.services.workspace_execution_service import ExecutionResult
+from apk_hacker.application.services.workspace_execution_service import WorkspaceExecutionService
 from apk_hacker.application.services.workspace_report_service import ReportExportResult
 from apk_hacker.application.services.workspace_report_service import WorkspaceReportService
 from apk_hacker.application.services.workspace_state_service import WorkspaceStateService
 from apk_hacker.application.services.workspace_traffic_service import WorkspaceTrafficService
 from apk_hacker.application.services.workspace_runtime_state import ExecutionHistoryEntry
-from apk_hacker.application.services.workspace_runtime_state import normalize_path
 from apk_hacker.application.services.workspace_runtime_state import WorkspaceRuntimeState
-from apk_hacker.domain.models.execution import ExecutionRequest
 from apk_hacker.domain.models.execution import ExecutionRuntimeOptions
 from apk_hacker.domain.models.hook_event import HookEvent
 from apk_hacker.domain.models.hook_plan import HookPlanSource
 from apk_hacker.domain.models.traffic import TrafficCapture
 from apk_hacker.domain.models.traffic import TrafficCaptureSummary
 from apk_hacker.domain.models.traffic import TrafficLiveCaptureState
-from apk_hacker.infrastructure.execution.backend import ExecutionCancelled
 from apk_hacker.infrastructure.persistence.hook_log_store import HookLogStore
-
-
-def _build_runtime_env(runtime_options: ExecutionRuntimeOptions | None) -> dict[str, str]:
-    if runtime_options is None:
-        return {}
-
-    frida_server_binary = runtime_options.frida_server_binary_path.strip()
-    frida_server_remote_path = runtime_options.frida_server_remote_path.strip()
-    frida_session_seconds = runtime_options.frida_session_seconds.strip()
-    parsed_session_seconds: float | None = None
-    if frida_session_seconds:
-        parsed_session_seconds = float(frida_session_seconds)
-
-    return build_execution_backend_env(
-        device_serial=runtime_options.device_serial.strip() or None,
-        frida_server_binary=Path(frida_server_binary).expanduser() if frida_server_binary else None,
-        frida_server_remote_path=frida_server_remote_path or None,
-        frida_session_seconds=parsed_session_seconds,
-    )
 
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
-
-@dataclass(frozen=True, slots=True)
-class ExecutionResult:
-    state: WorkspaceRuntimeState
-    execution_mode: str
-    executed_backend_key: str
-    run_id: str
-    event_count: int
-    db_path: Path
-    bundle_path: Path
-    executed_backend_label: str
-    events: tuple[HookEvent, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,6 +58,12 @@ class ExecutionPreflightResult:
     executed_backend_key: str | None
     executed_backend_label: str | None
     detail: str
+
+
+@dataclass(frozen=True, slots=True)
+class HookPlanView:
+    state: WorkspaceRuntimeState
+    source_by_item_id: dict[str, HookPlanSource]
 
 
 class WorkspaceRuntimeService:
@@ -113,6 +86,7 @@ class WorkspaceRuntimeService:
         workspace_hook_plan_service: WorkspaceHookPlanService | None = None,
         workspace_traffic_service: WorkspaceTrafficService | None = None,
         workspace_report_service: WorkspaceReportService | None = None,
+        workspace_execution_service: WorkspaceExecutionService | None = None,
     ) -> None:
         self._registry_service = registry_service
         self._default_workspace_root = default_workspace_root
@@ -138,10 +112,33 @@ class WorkspaceRuntimeService:
         self._workspace_report_service = workspace_report_service or WorkspaceReportService(
             report_export_service=resolved_report_export_service,
         )
+        self._workspace_execution_service = workspace_execution_service or WorkspaceExecutionService(
+            execution_backend_env=self._execution_backend_env,
+            real_device_command=self._real_device_command,
+            environment_service=self._environment_service,
+            backend_builder=lambda execution_mode, *, artifact_root=None, extra_env=None, real_device_command=None: (
+                build_execution_backend(
+                    execution_mode,
+                    artifact_root=artifact_root,
+                    extra_env=extra_env,
+                    real_device_command=real_device_command,
+                )
+            ),
+        )
 
     def get_state(self, case_id: str) -> WorkspaceRuntimeState:
         record = self._inspection_service.get_detail(case_id)
         return self._load_state(record)
+
+    def get_hook_plan_view(self, case_id: str) -> HookPlanView:
+        state = self.get_state(case_id)
+        return HookPlanView(
+            state=state,
+            source_by_item_id={
+                stable_hook_item_id(source.source_id): source
+                for source in state.selected_hook_sources
+            },
+        )
 
     def list_custom_scripts(self, case_id: str) -> tuple[CustomScriptRecord, ...]:
         record = self._inspection_service.get_detail(case_id)
@@ -570,17 +567,7 @@ class WorkspaceRuntimeService:
         )
 
     def resolve_execution_routing(self, execution_mode: str | None = None) -> ExecutionRouting:
-        requested_mode = execution_mode or "fake_backend"
-        runtime_availability = build_execution_runtime_availability(
-            extra_env=self._execution_backend_env,
-            real_device_command=self._real_device_command,
-        )
-        snapshot = self._environment_service.inspect()
-        return resolve_execution_routing(
-            requested_mode,
-            snapshot=snapshot,
-            runtime_availability=runtime_availability,
-        )
+        return self._workspace_execution_service.resolve_execution_routing(execution_mode)
 
     def execute_current_plan(
         self,
@@ -593,83 +580,21 @@ class WorkspaceRuntimeService:
         progress_callback: Callable[[str], None] | None = None,
     ) -> ExecutionResult:
         record = self._inspection_service.get_detail(case_id)
-        state = self.validate_execution_ready(case_id, execution_mode=execution_mode)
-        resolved_mode = execution_mode or "fake_backend"
-        routing = self.resolve_execution_routing(resolved_mode)
-        resolved_backend_key = executed_backend_key or routing.executed_backend_key
-        run_index = state.execution_count + 1
-        run_id = f"run-{run_index}"
-        bundle_path = record.workspace_root / "executions" / run_id
-        bundle_path.mkdir(parents=True, exist_ok=True)
-        runtime_env = _build_runtime_env(runtime_options)
-        backend_env = dict(self._execution_backend_env)
-        backend_env.update(runtime_env)
-
-        backend = build_execution_backend(
-            resolved_backend_key,
-            artifact_root=bundle_path,
-            extra_env=backend_env,
-            real_device_command=self._real_device_command,
-        )
-
-        if progress_callback is not None:
-            progress_callback("executing")
-        request = ExecutionRequest(
-            job_id=record.bundle.job.job_id,
-            plan=state.rendered_hook_plan,
-            package_name=record.bundle.static_inputs.package_name,
-            sample_path=record.sample_path,
-            runtime_env=runtime_env,
-            cancellation_event=cancellation_event,
-        )
-        events = backend.execute(request)
-        if cancellation_event is not None and cancellation_event.is_set():
-            raise ExecutionCancelled("Execution was cancelled by the user.")
-
-        bundle_from_backend = next(
-            (
-                _normalize_path(event.arguments[0])
-                for event in events
-                if event.event_type == "execution_bundle" and event.arguments
-            ),
-            None,
-        )
-        if bundle_from_backend is not None:
-            bundle_path = bundle_from_backend
-            bundle_path.mkdir(parents=True, exist_ok=True)
-
-        db_path = bundle_path / "hook-events.sqlite3"
-        if progress_callback is not None:
-            progress_callback("persisting")
-        store = HookLogStore(db_path)
-        persisted_events: list[HookEvent] = []
-        for event in events:
-            if event.event_type == "execution_bundle":
-                continue
-            persisted_events.append(event)
-        for event in persisted_events:
-            store.insert(replace(event, job_id=record.bundle.job.job_id))
-        runtime_state = self.mark_execution_completed(
+        state = self.validate_execution_ready(
             case_id,
-            run_index=run_index,
-            run_id=run_id,
-            execution_mode=resolved_mode,
-            executed_backend_key=resolved_backend_key,
-            event_count=len(persisted_events),
-            db_path=db_path,
-            bundle_path=bundle_path,
+            execution_mode=execution_mode,
+            runtime_options=runtime_options,
         )
-        return ExecutionResult(
-            state=runtime_state,
-            execution_mode=resolved_mode,
-            executed_backend_key=resolved_backend_key,
-            run_id=run_id,
-            event_count=len(persisted_events),
-            db_path=db_path,
-            bundle_path=bundle_path,
-            executed_backend_label=label_for_preset(resolved_backend_key),
-            events=tuple(persisted_events),
+        result = self._workspace_execution_service.execute(
+            state,
+            record,
+            execution_mode,
+            executed_backend_key=executed_backend_key,
+            runtime_options=runtime_options,
+            cancellation_event=cancellation_event,
+            progress_callback=progress_callback,
         )
+        return replace(result, state=self._save_state(result.state))
 
     def export_report(self, case_id: str) -> ReportExportResult:
         record = self._inspection_service.get_detail(case_id)

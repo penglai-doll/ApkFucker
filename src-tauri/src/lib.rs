@@ -52,18 +52,45 @@ fn default_sidecar_envs() -> Vec<(String, String)> {
 }
 
 fn sidecar_shell_command(command: String) -> SidecarLaunchSpec {
+  let (program, args) = if cfg!(target_os = "windows") {
+    (PathBuf::from("cmd"), vec!["/C".to_string(), command])
+  } else {
+    (PathBuf::from("/bin/sh"), vec!["-lc".to_string(), command])
+  };
   SidecarLaunchSpec {
-    program: PathBuf::from("/bin/sh"),
-    args: vec!["-lc".to_string(), command],
+    program,
+    args,
     cwd: None,
     envs: default_sidecar_envs(),
   }
 }
 
+fn command_candidates(name: &str) -> Vec<String> {
+  if !cfg!(target_os = "windows") || Path::new(name).extension().is_some() {
+    return vec![name.to_string()];
+  }
+
+  let mut candidates = vec![name.to_string()];
+  let pathext = env::var("PATHEXT").unwrap_or_else(|_| ".EXE;.CMD;.BAT;.COM".to_string());
+  for extension in pathext.split(';') {
+    let normalized = extension.trim();
+    if normalized.is_empty() {
+      continue;
+    }
+    candidates.push(format!("{name}{normalized}"));
+    candidates.push(format!("{name}{}", normalized.to_ascii_lowercase()));
+  }
+  candidates
+}
+
 fn command_in_path(name: &str) -> Option<PathBuf> {
   let paths = env::var_os("PATH")?;
   env::split_paths(&paths)
-    .map(|entry| entry.join(name))
+    .flat_map(|entry| {
+      command_candidates(name)
+        .into_iter()
+        .map(move |candidate| entry.join(Path::new(&candidate)))
+    })
     .find(|candidate| candidate.is_file())
 }
 
@@ -79,18 +106,23 @@ fn find_project_root(start: &Path) -> Option<PathBuf> {
 }
 
 fn packaged_resource_root() -> Option<PathBuf> {
-  let current_exe = env::current_exe().ok()?;
-  let exe_dir = current_exe.parent()?;
   #[cfg(target_os = "macos")]
   {
+    let current_exe = env::current_exe().ok()?;
+    let exe_dir = current_exe.parent()?;
     let contents_dir = exe_dir.parent()?;
     let resources_dir = contents_dir.join("Resources");
     if resources_dir.is_dir() {
       return Some(resources_dir);
     }
+
+    None
   }
 
-  None
+  #[cfg(not(target_os = "macos"))]
+  {
+    None
+  }
 }
 
 fn packaged_project_root() -> Option<PathBuf> {
@@ -230,7 +262,6 @@ fn sidecar_spec(app_handle: &AppHandle) -> SidecarLaunchSpec {
   sidecar_shell_command("apk-hacker-api".to_string())
 }
 
-#[cfg(target_os = "macos")]
 fn maybe_spawn_api_sidecar(app_handle: &AppHandle) {
   if should_skip_sidecar() {
     return;
@@ -272,9 +303,6 @@ fn maybe_spawn_api_sidecar(app_handle: &AppHandle) {
     }
   }
 }
-
-#[cfg(not(target_os = "macos"))]
-fn maybe_spawn_api_sidecar(_app_handle: &AppHandle) {}
 
 fn shutdown_api_sidecar(app_handle: &AppHandle) {
   let state = app_handle.state::<ApiSidecarState>();

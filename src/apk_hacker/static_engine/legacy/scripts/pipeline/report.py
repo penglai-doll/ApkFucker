@@ -54,7 +54,8 @@ def markdown_lines(report: dict) -> list[str]:
         f"- 图标引用: `{manifest.get('icon_ref') or '未知'}`",
     ]
     if report["icon_candidates"]:
-        lines.append(f"- 图标候选: {', '.join(f'`{item['exported_to']}`' for item in report['icon_candidates'])}")
+        icon_candidates = ", ".join("`{}`".format(item["exported_to"]) for item in report["icon_candidates"])
+        lines.append(f"- 图标候选: {icon_candidates}")
     lines.extend(
         [
             f"- 危险权限: {fmt(manifest.get('dangerous_permissions', []))}",
@@ -121,7 +122,11 @@ def markdown_lines(report: dict) -> list[str]:
     lines.extend(["", "### 第三方 SDK 调证 Key"])
     lines.append(f"- 说明: {sdk_keys.get('notes', '无')}")
     if sdk_keys.get("vendors"):
-        lines.append(f"- 厂商概览: {', '.join(f'`{item['vendor']}` {item['count']} 项' for item in sdk_keys['vendors'])}")
+        vendor_summary = ", ".join(
+            "`{}` {} 项".format(item["vendor"], item["count"])
+            for item in sdk_keys["vendors"]
+        )
+        lines.append(f"- 厂商概览: {vendor_summary}")
     if sdk_keys.get("suppressed_candidates"):
         lines.append(f"- 噪声抑制: 已压制 `{sdk_keys['suppressed_candidates']}` 条低上下文、占位符或未解析资源引用候选。")
     if sdk_keys.get("keys"):

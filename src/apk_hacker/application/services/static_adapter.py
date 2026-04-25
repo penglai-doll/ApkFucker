@@ -131,6 +131,50 @@ def _collect_list_field(report: Mapping[str, Any], *keys: str) -> tuple[str, ...
     return ()
 
 
+def _collect_crypto_signals(report: Mapping[str, Any]) -> tuple[str, ...]:
+    explicit = _collect_list_field(report, "crypto_signals")
+    if explicit:
+        return explicit
+
+    crypto_profile = report.get("crypto_profile")
+    if not isinstance(crypto_profile, Mapping):
+        return ()
+
+    values: list[object] = []
+    for key in ("algorithms", "modes", "decryption_methods"):
+        values.extend(_unique_texts(crypto_profile.get(key)))
+    return _unique_texts(values)
+
+
+def _collect_packer_hints(report: Mapping[str, Any]) -> tuple[str, ...]:
+    explicit = _collect_list_field(report, "packer_hints") or _collect_list_field(report, "packer")
+    if explicit:
+        return explicit
+
+    values: list[object] = []
+    native_summary = report.get("native_summary")
+    if isinstance(native_summary, Mapping):
+        values.extend(_unique_texts(native_summary.get("packers")))
+
+    triage = report.get("triage")
+    if isinstance(triage, Mapping):
+        signals = triage.get("signals")
+        if isinstance(signals, Sequence) and not isinstance(signals, (str, bytes)):
+            for signal in signals:
+                if not isinstance(signal, Mapping) or _text_value(signal.get("category")) != "packer":
+                    continue
+                values.extend(
+                    _unique_texts(
+                        [
+                            signal.get("evidence"),
+                            signal.get("rationale"),
+                        ]
+                    )
+                )
+
+    return _unique_texts(values)
+
+
 class StaticAdapter:
     def adapt(
         self,
@@ -162,8 +206,8 @@ class StaticAdapter:
             dangerous_permissions=dangerous_permissions,
             callback_endpoints=_collect_endpoints(callback_config),
             callback_clues=_collect_callback_clues(callback_config),
-            crypto_signals=_collect_list_field(analysis_report, "crypto_signals"),
-            packer_hints=_collect_list_field(analysis_report, "packer_hints") or _collect_list_field(analysis_report, "packer"),
+            crypto_signals=_collect_crypto_signals(analysis_report),
+            packer_hints=_collect_packer_hints(analysis_report),
             limitations=_collect_list_field(analysis_report, "limitations"),
             artifact_paths=coerce_artifact_paths(artifact_paths),
         )

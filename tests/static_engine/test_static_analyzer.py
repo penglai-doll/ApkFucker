@@ -33,6 +33,7 @@ def test_build_output_layout_expands_tilde_roots(tmp_path: Path, monkeypatch) ->
     home_dir = tmp_path / "home"
     home_dir.mkdir()
     monkeypatch.setenv("HOME", str(home_dir))
+    monkeypatch.setenv("USERPROFILE", str(home_dir))
 
     target = tmp_path / "sample.apk"
     target.write_bytes(b"apk")

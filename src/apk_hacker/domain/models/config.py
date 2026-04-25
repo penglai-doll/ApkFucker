@@ -22,6 +22,12 @@ class ArtifactPaths:
     jadx_project: Path | None = None
     static_markdown_report: Path | None = None
     static_docx_report: Path | None = None
+    artifact_manifest: Path | None = None
+    static_result: Path | None = None
+    findings_jsonl: Path | None = None
+    evidence_jsonl: Path | None = None
+    method_index_jsonl: Path | None = None
+    class_index_jsonl: Path | None = None
 
 
 def coerce_artifact_paths(artifact_paths: Mapping[str, object] | ArtifactPaths | None) -> ArtifactPaths:
@@ -38,4 +44,10 @@ def coerce_artifact_paths(artifact_paths: Mapping[str, object] | ArtifactPaths |
         jadx_project=_coerce_path(artifact_paths.get("jadx_project")),
         static_markdown_report=_coerce_path(artifact_paths.get("static_markdown_report")),
         static_docx_report=_coerce_path(artifact_paths.get("static_docx_report")),
+        artifact_manifest=_coerce_path(artifact_paths.get("artifact_manifest")),
+        static_result=_coerce_path(artifact_paths.get("static_result")),
+        findings_jsonl=_coerce_path(artifact_paths.get("findings_jsonl")),
+        evidence_jsonl=_coerce_path(artifact_paths.get("evidence_jsonl")),
+        method_index_jsonl=_coerce_path(artifact_paths.get("method_index_jsonl")),
+        class_index_jsonl=_coerce_path(artifact_paths.get("class_index_jsonl")),
     )

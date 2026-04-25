@@ -11,6 +11,8 @@ from apk_hacker.domain.models.hook_plan import HookPlanSource
 from apk_hacker.domain.models.indexes import MethodIndexEntry
 from apk_hacker.infrastructure.execution.backend import ExecutionBackendUnavailable
 from apk_hacker.infrastructure.execution.real_backend import RealExecutionBackend
+from tests.fake_cli_tools import prepend_path
+from tests.fake_cli_tools import write_fake_adb_from_shell
 
 
 def _write_fake_frida_module(path: Path) -> Path:
@@ -104,7 +106,7 @@ def test_packaged_frida_session_backend_forwards_script_messages(tmp_path: Path)
     state_file = tmp_path / "fake-frida-state.jsonl"
     _write_fake_frida_module(tmp_path)
     pythonpath = os.environ.get("PYTHONPATH", "")
-    env_pythonpath = f"{tmp_path}:{pythonpath}" if pythonpath else str(tmp_path)
+    env_pythonpath = f"{tmp_path}{os.pathsep}{pythonpath}" if pythonpath else str(tmp_path)
     method = MethodIndexEntry(
         class_name="com.demo.net.Config",
         method_name="buildUploadUrl",
@@ -235,7 +237,7 @@ def get_usb_device(timeout: int | None = None):
         encoding="utf-8",
     )
     pythonpath = os.environ.get("PYTHONPATH", "")
-    env_pythonpath = f"{tmp_path}:{pythonpath}" if pythonpath else str(tmp_path)
+    env_pythonpath = f"{tmp_path}{os.pathsep}{pythonpath}" if pythonpath else str(tmp_path)
     method = MethodIndexEntry(
         class_name="com.demo.net.Config",
         method_name="buildUploadUrl",
@@ -282,7 +284,7 @@ def test_packaged_frida_session_backend_loads_all_scripts_in_plan_order(tmp_path
     state_file = tmp_path / "fake-frida-state.jsonl"
     _write_fake_frida_module(tmp_path)
     pythonpath = os.environ.get("PYTHONPATH", "")
-    env_pythonpath = f"{tmp_path}:{pythonpath}" if pythonpath else str(tmp_path)
+    env_pythonpath = f"{tmp_path}{os.pathsep}{pythonpath}" if pythonpath else str(tmp_path)
     custom_one = tmp_path / "custom-one.js"
     custom_one.write_text("send('custom-one');\n", encoding="utf-8")
     custom_two = tmp_path / "custom-two.js"
@@ -416,7 +418,7 @@ def get_usb_device(timeout: int | None = None) -> FakeDevice:
         encoding="utf-8",
     )
     pythonpath = os.environ.get("PYTHONPATH", "")
-    env_pythonpath = f"{tmp_path}:{pythonpath}" if pythonpath else str(tmp_path)
+    env_pythonpath = f"{tmp_path}{os.pathsep}{pythonpath}" if pythonpath else str(tmp_path)
     method = MethodIndexEntry(
         class_name="com.demo.net.Config",
         method_name="buildUploadUrl",
@@ -479,7 +481,7 @@ def get_usb_device(timeout: int | None = None):
         encoding="utf-8",
     )
     pythonpath = os.environ.get("PYTHONPATH", "")
-    env_pythonpath = f"{tmp_path}:{pythonpath}" if pythonpath else str(tmp_path)
+    env_pythonpath = f"{tmp_path}{os.pathsep}{pythonpath}" if pythonpath else str(tmp_path)
     method = MethodIndexEntry(
         class_name="com.demo.net.Config",
         method_name="buildUploadUrl",
@@ -577,7 +579,7 @@ def get_usb_device(timeout: int | None = None) -> FakeDevice:
         encoding="utf-8",
     )
     pythonpath = os.environ.get("PYTHONPATH", "")
-    env_pythonpath = f"{tmp_path}:{pythonpath}" if pythonpath else str(tmp_path)
+    env_pythonpath = f"{tmp_path}{os.pathsep}{pythonpath}" if pythonpath else str(tmp_path)
     custom_one = tmp_path / "custom-one.js"
     custom_one.write_text("send('custom-one');\n", encoding="utf-8")
     plan = HookPlanService().plan_for_sources(
@@ -692,10 +694,10 @@ def get_usb_device(timeout: int | None = None) -> FakeDevice:
         + "\n",
         encoding="utf-8",
     )
-    adb_path = tmp_path / "adb"
     frida_server_binary = tmp_path / "frida-server"
     frida_server_binary.write_text("fake-binary", encoding="utf-8")
-    adb_path.write_text(
+    write_fake_adb_from_shell(
+        tmp_path,
         f"""#!/bin/sh
 READY_MARKER="{marker_file}"
 if [ "$1" = "devices" ]; then
@@ -732,12 +734,10 @@ if [ "$1" = "-s" ] && [ "$2" = "serial-123" ] && [ "$3" = "shell" ] && [ "$4" = 
 fi
 exit 1
 """,
-        encoding="utf-8",
     )
-    adb_path.chmod(0o755)
     pythonpath = os.environ.get("PYTHONPATH", "")
-    env_pythonpath = f"{tmp_path}:{pythonpath}" if pythonpath else str(tmp_path)
-    env_path = f"{tmp_path}:{os.environ['PATH']}"
+    env_pythonpath = f"{tmp_path}{os.pathsep}{pythonpath}" if pythonpath else str(tmp_path)
+    env_path = prepend_path(tmp_path)
     method = MethodIndexEntry(
         class_name="com.demo.net.Config",
         method_name="buildUploadUrl",
@@ -875,10 +875,10 @@ def get_usb_device(timeout: int | None = None) -> FakeDevice:
         + "\n",
         encoding="utf-8",
     )
-    adb_path = tmp_path / "adb"
     sample_path = tmp_path / "sample.apk"
     sample_path.write_bytes(b"apk")
-    adb_path.write_text(
+    write_fake_adb_from_shell(
+        tmp_path,
         f"""#!/bin/sh
 STATE_FILE="{adb_state}"
 append() {{
@@ -899,12 +899,10 @@ if [ "$1" = "-s" ] && [ "$2" = "serial-123" ] && [ "$3" = "install" ] && [ "$4" 
 fi
 exit 1
 """,
-        encoding="utf-8",
     )
-    adb_path.chmod(0o755)
     pythonpath = os.environ.get("PYTHONPATH", "")
-    env_pythonpath = f"{tmp_path}:{pythonpath}" if pythonpath else str(tmp_path)
-    env_path = f"{tmp_path}:{os.environ['PATH']}"
+    env_pythonpath = f"{tmp_path}{os.pathsep}{pythonpath}" if pythonpath else str(tmp_path)
+    env_path = prepend_path(tmp_path)
     method = MethodIndexEntry(
         class_name="com.demo.net.Config",
         method_name="buildUploadUrl",
@@ -1035,7 +1033,7 @@ def get_usb_device(timeout: int | None = None) -> FakeDevice:
         encoding="utf-8",
     )
     pythonpath = os.environ.get("PYTHONPATH", "")
-    env_pythonpath = f"{tmp_path}:{pythonpath}" if pythonpath else str(tmp_path)
+    env_pythonpath = f"{tmp_path}{os.pathsep}{pythonpath}" if pythonpath else str(tmp_path)
     method = MethodIndexEntry(
         class_name="com.demo.net.Config",
         method_name="buildUploadUrl",

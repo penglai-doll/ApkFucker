@@ -1,18 +1,16 @@
 from pathlib import Path
 import json
-import os
 import sys
 
 from apk_hacker.domain.models.execution import ExecutionRequest
 from apk_hacker.domain.models.hook_plan import HookPlan
 from apk_hacker.infrastructure.execution.real_backend import RealExecutionBackend
+from tests.fake_cli_tools import prepend_path
+from tests.fake_cli_tools import write_fake_adb_from_shell
 
 
 def _write_fake_adb(path: Path, script: str) -> Path:
-    adb_path = path / "adb"
-    adb_path.write_text(script, encoding="utf-8")
-    adb_path.chmod(0o755)
-    return adb_path
+    return write_fake_adb_from_shell(path, script)
 
 
 def test_packaged_frida_bootstrap_backend_reports_running_server(tmp_path: Path) -> None:
@@ -38,7 +36,7 @@ fi
 exit 1
 """,
     )
-    env_path = f"{tmp_path}:{os.environ['PATH']}"
+    env_path = prepend_path(tmp_path)
     backend = RealExecutionBackend(
         command=f"{sys.executable} -m apk_hacker.tools.frida_bootstrap_backend",
         extra_env={"PATH": env_path},
@@ -104,7 +102,7 @@ fi
 exit 1
 """,
     )
-    env_path = f"{tmp_path}:{os.environ['PATH']}"
+    env_path = prepend_path(tmp_path)
     backend = RealExecutionBackend(
         command=f"{sys.executable} -m apk_hacker.tools.frida_bootstrap_backend",
         extra_env={

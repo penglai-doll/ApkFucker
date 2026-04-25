@@ -3,12 +3,17 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import subprocess
+
+
+def _command_path(name: str) -> str:
+    return shutil.which(name) or name
 
 
 def _run_frida_ps() -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        ["frida-ps", "-Uai"],
+        [_command_path("frida-ps"), "-Uai"],
         capture_output=True,
         text=True,
         check=False,

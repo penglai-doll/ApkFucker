@@ -1,7 +1,35 @@
 Java.perform(function() {
+    var File = Java.use("java.io.File");
+    var indicators = ["frida", "gum-js-loop", "gadget", "magisk", "/su", "supersu"];
+
+    function looksSuspicious(pathValue) {
+        var path = (pathValue || "").toLowerCase();
+        return indicators.some(function(indicator) {
+            return path.indexOf(indicator) !== -1;
+        });
+    }
+
+    var fileExists = File.exists.overload();
+    fileExists.implementation = function() {
+        var path = this.getAbsolutePath();
+        if (looksSuspicious(path)) {
+            send(JSON.stringify({
+                "event_type": "anti_detection_bypass",
+                "hook_type": "anti_detection",
+                "class_name": "java.io.File",
+                "method_name": "exists",
+                "arguments": [path.toString()],
+                "return_value": "false"
+            }));
+            return false;
+        }
+        return fileExists.call(this);
+    };
+
     send(JSON.stringify({
-        "hook_type": "template_loaded",
+        "event_type": "template_loaded",
+        "hook_type": "template",
         "template": "anti_detection.frida_detect_bypass",
-        "message": "Frida detection bypass template loaded"
+        "message": "Frida detection bypass hooks installed"
     }));
 });

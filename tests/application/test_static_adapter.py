@@ -110,6 +110,40 @@ def test_static_adapter_supports_compatibility_fallbacks(tmp_path: Path) -> None
     assert result.callback_clues == ("sources/com/compat/Net.java: https://compat.example/api",)
 
 
+def test_static_adapter_reads_legacy_crypto_profile_and_packer_signals(tmp_path: Path) -> None:
+    adapter = StaticAdapter()
+
+    result = adapter.adapt(
+        sample_path=tmp_path / "samples" / "legacy-shaped.apk",
+        analysis_report={
+            "package_name": "com.legacy.demo",
+            "crypto_profile": {
+                "algorithms": ["AES", "RSA"],
+                "modes": ["CBC"],
+                "decryption_methods": ["Base64.decode"],
+            },
+            "triage": {
+                "signals": [
+                    {
+                        "category": "packer",
+                        "evidence": "assets/ijiami.dat",
+                        "rationale": "iJiami protector artifact",
+                    },
+                    {
+                        "category": "network",
+                        "evidence": "https://example.test",
+                    },
+                ],
+            },
+        },
+        callback_config={},
+        artifact_paths=None,
+    )
+
+    assert result.crypto_signals == ("AES", "RSA", "CBC", "Base64.decode")
+    assert result.packer_hints == ("assets/ijiami.dat", "iJiami protector artifact")
+
+
 def test_static_adapter_keeps_declared_permissions_out_of_dangerous_permissions(tmp_path: Path) -> None:
     adapter = StaticAdapter()
 

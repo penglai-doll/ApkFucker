@@ -920,7 +920,9 @@ def test_open_path_uses_desktop_launcher_and_returns_opened_status(tmp_path: Pat
 
 def test_get_environment_reports_tools_and_execution_presets(tmp_path: Path, monkeypatch) -> None:
     workspace_root = tmp_path / "workspaces"
-    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    home_dir = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home_dir))
+    monkeypatch.setenv("USERPROFILE", str(home_dir))
     environment_service = EnvironmentService(
         resolver=lambda name: {
             "adb": "/usr/bin/adb",

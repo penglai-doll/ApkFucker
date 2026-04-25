@@ -2,12 +2,17 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import subprocess
+
+
+def _command_path(name: str) -> str:
+    return shutil.which(name) or name
 
 
 def _run_adb(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        ["adb", *args],
+        [_command_path("adb"), *args],
         capture_output=True,
         text=True,
         check=False,

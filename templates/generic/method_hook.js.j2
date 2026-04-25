@@ -1,17 +1,57 @@
 Java.perform(function() {
     var TargetClass = Java.use("{{ className }}");
-    var overload = TargetClass["{{ methodName }}"].overload(
-{% for param_type in paramTypes %}
-        "{{ param_type }}"{% if not loop.last %},{% endif %}
-{% endfor %}
-    );
+    var Log = Java.use("android.util.Log");
+    var Exception = Java.use("java.lang.Exception");
+    var methodName = "{{ methodName }}";
 
-    overload.implementation = function() {
-        send(JSON.stringify({
-            "event_type": "method_call",
-            "class_name": "{{ className }}",
-            "method_name": "{{ methodName }}"
-        }));
-        return overload.apply(this, arguments);
-    };
+    function stringify(value) {
+        if (value === null || value === undefined) {
+            return "null";
+        }
+        try {
+            return value.toString();
+        } catch (error) {
+            return "<toString failed: " + error + ">";
+        }
+    }
+
+    TargetClass[methodName].overloads.forEach(function(overload, overloadIndex) {
+        overload.implementation = function() {
+            var argsArray = [];
+            for (var index = 0; index < arguments.length; index++) {
+                argsArray.push(stringify(arguments[index]));
+            }
+            send(JSON.stringify({
+                "event_type": "method_call",
+                "hook_type": "method",
+                "class_name": "{{ className }}",
+                "method_name": methodName,
+                "overload_index": overloadIndex,
+                "arguments": argsArray,
+                "stacktrace": Log.getStackTraceString(Exception.$new())
+            }));
+            try {
+                var ret = overload.apply(this, arguments);
+                send(JSON.stringify({
+                    "event_type": "method_return",
+                    "hook_type": "method",
+                    "class_name": "{{ className }}",
+                    "method_name": methodName,
+                    "overload_index": overloadIndex,
+                    "return_value": stringify(ret)
+                }));
+                return ret;
+            } catch (error) {
+                send(JSON.stringify({
+                    "event_type": "method_error",
+                    "hook_type": "method",
+                    "class_name": "{{ className }}",
+                    "method_name": methodName,
+                    "overload_index": overloadIndex,
+                    "return_value": stringify(error)
+                }));
+                throw error;
+            }
+        };
+    });
 });

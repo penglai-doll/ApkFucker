@@ -12,6 +12,7 @@ from apk_hacker.domain.models.hook_plan import HookPlan
 from apk_hacker.infrastructure.execution.backend import ExecutionCancelled
 from apk_hacker.infrastructure.execution.backend import ExecutionBackendUnavailable
 from apk_hacker.infrastructure.execution.real_backend import RealExecutionBackend
+from apk_hacker.infrastructure.execution.real_backend import _split_command
 
 
 def test_real_backend_raises_clear_error_when_not_configured() -> None:
@@ -19,6 +20,16 @@ def test_real_backend_raises_clear_error_when_not_configured() -> None:
 
     with raises(ExecutionBackendUnavailable, match="APKHACKER_REAL_BACKEND_COMMAND"):
         backend.execute(ExecutionRequest(job_id="job-1", plan=HookPlan(items=())))
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows command splitting regression")
+def test_real_backend_command_split_preserves_windows_paths() -> None:
+    parts = _split_command(r"C:\Users\zhong\Python311\python.exe C:\tmp\helper.py")
+
+    assert parts == [
+        r"C:\Users\zhong\Python311\python.exe",
+        r"C:\tmp\helper.py",
+    ]
 
 
 def test_real_backend_runs_configured_command_and_parses_json_events(tmp_path: Path) -> None:

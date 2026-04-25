@@ -31,6 +31,18 @@ def _slug(value: str) -> str:
     return collapsed or "script"
 
 
+def _split_command(command: str) -> list[str]:
+    parts = shlex.split(command, posix=os.name != "nt")
+    if os.name != "nt":
+        return parts
+    return [
+        part[1:-1]
+        if len(part) >= 2 and part[0] == part[-1] and part[0] in {"'", '"'}
+        else part
+        for part in parts
+    ]
+
+
 def _serialize_plan(plan: HookPlan) -> dict[str, object]:
     def serialize_item(item: HookPlanItem) -> dict[str, object]:
         target = None
@@ -249,7 +261,7 @@ class CommandExecutionRunner:
             if request.sample_path is not None:
                 env["APKHACKER_SAMPLE_PATH"] = str(request.sample_path)
             process = subprocess.Popen(
-                shlex.split(self._command),
+                _split_command(self._command),
                 cwd=workdir,
                 env=env,
                 stdout=subprocess.PIPE,

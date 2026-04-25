@@ -127,4 +127,4 @@ def test_hook_plan_service_builds_template_hook_items() -> None:
         "template_name": "OkHttp3 SSL Unpinning",
         "rendered_script": str(result.items[0].render_context["rendered_script"]),
     }
-    assert "OkHttp3 SSL unpinning template loaded" in str(result.items[0].render_context["rendered_script"])
+    assert "OkHttp3 SSL unpinning hooks installed" in str(result.items[0].render_context["rendered_script"])
