@@ -102,7 +102,10 @@ class HookPlanService:
             render_context=script.render_context,
             plugin_id=script.plugin_id,
             evidence_ids=method.evidence,
-            tags=method.tags,
+            tags=tuple(dict.fromkeys((*method.tags, *source.matched_terms))),
+            reason=source.reason,
+            matched_terms=source.matched_terms,
+            source_signals=source.source_signals,
         )
 
     @staticmethod
@@ -140,6 +143,34 @@ class HookPlanService:
     ) -> HookPlanItem:
         source_id = source.source_id
         item_id = stable_hook_item_id(source_id)
+        tags = tuple(
+            dict.fromkeys(
+                value
+                for value in (
+                    source.template_category,
+                    *source.matched_terms,
+                )
+                if value
+            )
+        )
+        render_context: dict[str, object] = {
+            "template_id": template_id,
+            "template_name": template_name,
+        }
+        if source.reason:
+            render_context["source_reason"] = source.reason
+        if source.matched_terms:
+            render_context["matched_terms"] = list(source.matched_terms)
+        if source.source_signals:
+            render_context["source_signals"] = list(source.source_signals)
+        if source.template_event_types:
+            render_context["template_event_types"] = list(source.template_event_types)
+        if source.template_category:
+            render_context["template_category"] = source.template_category
+        if source.requires_root:
+            render_context["requires_root"] = source.requires_root
+        if not source.supports_offline:
+            render_context["supports_offline"] = source.supports_offline
         return HookPlanItem(
             item_id=item_id,
             kind="template_hook",
@@ -147,10 +178,15 @@ class HookPlanService:
             enabled=True,
             inject_order=inject_order,
             target=None,
-            render_context={
-                "template_id": template_id,
-                "template_name": template_name,
-            },
+            render_context=render_context,
             plugin_id=plugin_id,
             template_id=template_id,
+            tags=tags,
+            reason=source.reason,
+            matched_terms=source.matched_terms,
+            source_signals=source.source_signals,
+            template_event_types=source.template_event_types,
+            template_category=source.template_category,
+            requires_root=source.requires_root,
+            supports_offline=source.supports_offline,
         )

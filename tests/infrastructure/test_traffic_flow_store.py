@@ -1,4 +1,5 @@
 from pathlib import Path
+import sqlite3
 
 from apk_hacker.domain.models.traffic import TrafficFlowSummary
 from apk_hacker.infrastructure.persistence.traffic_flow_store import TrafficFlowStore
@@ -38,7 +39,12 @@ def test_traffic_flow_store_persists_imported_har_flows(tmp_path: Path) -> None:
 
     loaded = store.list_for_capture("capture-001")
     assert len(loaded) == 2
-    assert loaded[0] == _flows()[0]
+    assert loaded[0].summary == _flows()[0]
+    assert loaded[0].schema_version == "traffic-flow.v1"
+    assert loaded[0].capture_id == "capture-001"
+    assert loaded[0].scheme == "https"
+    assert loaded[0].host == "demo-c2.example"
+    assert loaded[0].path == "/api/upload"
     assert loaded[1].matched_indicators == ()
 
 
@@ -62,5 +68,33 @@ def test_traffic_flow_store_replace_capture_overwrites_previous_rows(tmp_path: P
     store.replace_capture("capture-001", replacement)
 
     loaded = store.list_for_capture("capture-001")
-    assert loaded == list(replacement)
+    assert [flow.summary for flow in loaded] == list(replacement)
     assert store.list_for_capture("capture-missing") == []
+
+
+def test_traffic_flow_store_migrates_legacy_tables_without_indicator_column(tmp_path: Path) -> None:
+    db_path = tmp_path / "legacy-flows.sqlite3"
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE traffic_flows (
+                capture_id TEXT NOT NULL,
+                flow_id TEXT NOT NULL,
+                method TEXT NOT NULL,
+                url TEXT NOT NULL,
+                status_code INTEGER,
+                mime_type TEXT,
+                request_preview TEXT NOT NULL,
+                response_preview TEXT NOT NULL,
+                suspicious INTEGER NOT NULL,
+                PRIMARY KEY (capture_id, flow_id)
+            )
+            """
+        )
+        conn.commit()
+
+    store = TrafficFlowStore(db_path)
+    store.replace_capture("capture-legacy", _flows())
+
+    loaded = store.list_for_capture("capture-legacy")
+    assert [flow.summary for flow in loaded] == list(_flows())

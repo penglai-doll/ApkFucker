@@ -247,11 +247,27 @@ class WorkbenchController:
                 template_id=recommendation.template_id,
                 template_name=recommendation.template_name,
                 plugin_id=recommendation.plugin_id,
+                reason=recommendation.reason,
+                matched_terms=recommendation.matched_terms,
+                source_signals=recommendation.source_signals,
+                template_event_types=recommendation.template_event_types,
+                template_category=recommendation.template_category,
+                requires_root=recommendation.requires_root,
+                supports_offline=recommendation.supports_offline,
             )
             return self._add_source_to_plan(state, source)
         if recommendation.method is None:
             return replace(state, summary_text="The selected recommendation is advisory only.")
-        return self.add_method_to_plan(state, recommendation.method)
+        return self._add_source_to_plan(
+            state,
+            HookPlanSource.from_method(
+                recommendation.method,
+                source_kind="offline_recommendation",
+                reason=recommendation.reason,
+                matched_terms=recommendation.matched_terms,
+                source_signals=recommendation.source_signals,
+            ),
+        )
 
     def add_top_recommendations_to_plan(self, state: WorkbenchState, limit: int = 3) -> WorkbenchState:
         next_state = state

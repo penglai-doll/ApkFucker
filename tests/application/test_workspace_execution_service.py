@@ -113,6 +113,15 @@ def test_workspace_execution_service_records_successful_run_metadata(tmp_path: P
     assert result.db_path == record.workspace_root / "executions" / "run-1" / "hook-events.sqlite3"
     assert result.bundle_path == record.workspace_root / "executions" / "run-1"
     assert result.db_path.exists()
+    manifest_path = result.bundle_path / "artifact-manifest.json"
+    assert manifest_path.exists()
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["schema_version"] == "artifact-manifest.v1"
+    assert manifest["case_id"] == record.case_id
+    artifact_by_kind = {item["kind"]: item for item in manifest["artifacts"]}
+    assert artifact_by_kind["dynamic.hook_events_sqlite"]["path"] == str(result.db_path.resolve())
+    assert artifact_by_kind["dynamic.hook_events_sqlite"]["metadata"]["event_count"] == 1
+    assert artifact_by_kind["dynamic.hook_events_sqlite"]["metadata"]["schema"] == "dynamic-event.v1"
     assert result.state.execution_count == 1
     assert result.state.last_execution_status == "completed"
     assert result.state.last_execution_stage == "completed"

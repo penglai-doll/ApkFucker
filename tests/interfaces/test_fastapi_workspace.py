@@ -317,7 +317,10 @@ def test_live_traffic_capture_returns_unavailable_when_command_not_configured(tm
     assert response.json() == {
         "case_id": case_id,
         "status": "unavailable",
+        "session_id": None,
         "artifact_path": None,
+        "output_path": None,
+        "preview_path": None,
         "message": "未配置实时抓包命令，请设置 APKHACKER_TRAFFIC_CAPTURE_COMMAND。",
     }
 
@@ -367,6 +370,9 @@ def test_live_traffic_capture_start_and_stop_imports_har_artifact(tmp_path: Path
     assert capture_payload["source_path"] == stop_payload["artifact_path"]
     assert capture_payload["flow_count"] == 2
     assert capture_payload["suspicious_count"] == 1
+    assert capture_payload["flow_schema"] == "traffic-flow.v1"
+    assert capture_payload["flows"][0]["schema_version"] == "traffic-flow.v1"
+    assert capture_payload["flows"][0]["host"] == "demo-c2.example"
 
 
 def test_workspace_lookup_survives_app_restart_for_override_root(tmp_path: Path) -> None:
@@ -594,12 +600,15 @@ def test_workspace_detail_returns_static_brief_and_custom_scripts(tmp_path: Path
         "last_report_path": None,
         "traffic_capture_source_path": None,
         "traffic_capture_summary_path": None,
-        "traffic_capture_flow_count": None,
-        "traffic_capture_suspicious_count": None,
-        "live_traffic_status": "idle",
-        "live_traffic_artifact_path": None,
-        "live_traffic_message": None,
-    }
+            "traffic_capture_flow_count": None,
+            "traffic_capture_suspicious_count": None,
+            "live_traffic_status": "idle",
+            "live_traffic_session_id": None,
+            "live_traffic_artifact_path": None,
+            "live_traffic_output_path": None,
+            "live_traffic_preview_path": None,
+            "live_traffic_message": None,
+        }
     assert len(static_analyzer.calls) == 1
 
 
@@ -715,6 +724,11 @@ def test_workspace_events_replay_recent_execution_history(tmp_path: Path) -> Non
     assert len(payload["items"]) <= 5
     assert all(item["type"] == "execution.event" for item in payload["items"])
     assert all("payload" in item for item in payload["items"])
+    first_event = payload["items"][0]
+    assert first_event["schema_version"] == "dynamic-event.v1"
+    assert first_event["event_type"] == first_event["payload"]["event_type"]
+    assert first_event["hook_type"]
+    assert first_event["class_name"] == first_event["payload"]["class_name"]
 
 
 def test_workspace_methods_filters_results_and_uses_loaded_bundle(tmp_path: Path) -> None:
@@ -999,6 +1013,7 @@ def test_workspace_traffic_import_persists_case_scoped_capture(tmp_path: Path) -
     assert import_response.status_code == 200
     payload = import_response.json()
     assert payload["case_id"] == case_id
+    assert payload["flow_schema"] == "traffic-flow.v1"
     assert payload["flow_count"] == 2
     assert payload["suspicious_count"] == 1
     assert payload["source_path"].endswith(str(Path("tests/fixtures/traffic/sample.har")))
@@ -1033,6 +1048,10 @@ def test_workspace_traffic_import_persists_case_scoped_capture(tmp_path: Path) -
         ],
     }
     assert payload["flows"][0]["suspicious"] is True
+    assert payload["flows"][0]["schema_version"] == "traffic-flow.v1"
+    assert payload["flows"][0]["capture_id"].startswith("capture-")
+    assert payload["flows"][0]["host"] == "demo-c2.example"
+    assert payload["flows"][0]["path"] == "/api/upload"
     assert payload["flows"][0]["url"] == "https://demo-c2.example/api/upload"
 
     detail_response = client.get(f"/api/cases/{case_id}/traffic")
@@ -1400,6 +1419,12 @@ def test_hook_plan_api_persists_sources_and_renders_plan_preview(tmp_path: Path)
         json={"recommendation_id": recommendation_id},
     )
     assert add_recommendation_response.status_code == 200
+    recommendation_plan_item = next(
+        item for item in add_recommendation_response.json()["items"] if item["reason"]
+    )
+    assert recommendation_plan_item["matched_terms"]
+    assert recommendation_plan_item["source_signals"]
+    assert recommendation_plan_item["source"]["reason"] == recommendation_plan_item["reason"]
 
     environment_response = client.get("/api/settings/environment")
     assert environment_response.status_code == 200

@@ -2953,20 +2953,30 @@ describe("CaseWorkspacePage", () => {
       truncated: false,
       items: [
         {
+          schema_version: "traffic-flow.v1",
+          capture_id: "capture-preview",
           flow_id: "preview-1",
           timestamp: "2026-04-19T10:00:00Z",
           method: "GET",
           url: "https://cdn.example.org/app.js",
           status_code: 200,
+          mime_type: null,
+          request_preview: "",
+          response_preview: "",
           matched_indicators: [],
           suspicious: false,
         },
         {
+          schema_version: "traffic-flow.v1",
+          capture_id: "capture-preview",
           flow_id: "preview-2",
           timestamp: "2026-04-19T10:00:02Z",
           method: "POST",
           url: "https://demo-c2.example/api/upload",
           status_code: 202,
+          mime_type: null,
+          request_preview: "",
+          response_preview: "",
           matched_indicators: ["demo-c2.example"],
           suspicious: true,
         },
@@ -3596,6 +3606,7 @@ describe("CaseWorkspacePage", () => {
 
     const trafficPanel = screen.getByRole("heading", { name: "流量证据" }).closest("section");
     expect(trafficPanel).not.toBeNull();
+    await within(trafficPanel as HTMLElement).findByText("优先处理 OkHttp SSL Pinning");
 
     fireEvent.click(
       await within(trafficPanel as HTMLElement).findByRole("button", { name: "在 Hook 工作台中查看 SSL/网络线索" }),
@@ -3610,7 +3621,7 @@ describe("CaseWorkspacePage", () => {
     });
     expect(await screen.findByText("来自流量证据的线索")).toBeInTheDocument();
     expect(
-      screen.getByText(
+      await screen.findByText(
         hasExactTextContent("已根据 优先处理 OkHttp SSL Pinning 切到 Hook 工作台，并预填关键词：okhttp3 ssl https。"),
       ),
     ).toBeInTheDocument();

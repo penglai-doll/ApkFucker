@@ -43,6 +43,13 @@ type HookPlanSourceApiResponse = {
   template_id?: string | null;
   template_name?: string | null;
   plugin_id?: string | null;
+  reason?: string | null;
+  matched_terms?: string[];
+  source_signals?: string[];
+  template_event_types?: string[];
+  template_category?: string | null;
+  requires_root?: boolean;
+  supports_offline?: boolean;
 };
 
 type HookPlanTargetApiResponse = {
@@ -64,6 +71,14 @@ type HookPlanItemApiResponse = {
   target?: HookPlanTargetApiResponse | null;
   render_context?: Record<string, unknown>;
   plugin_id?: string | null;
+  template_id?: string | null;
+  reason?: string | null;
+  matched_terms?: string[];
+  source_signals?: string[];
+  template_event_types?: string[];
+  template_category?: string | null;
+  requires_root?: boolean;
+  supports_offline?: boolean;
 };
 
 type HookPlanApiResponse = {
@@ -377,6 +392,21 @@ function mapHookPlanResponse(payload: HookPlanApiResponse): HookPlanResponse {
           asNullableString(source?.script_name) ?? asNullableString(item.render_context?.script_name),
         script_path:
           asNullableString(source?.script_path) ?? asNullableString(item.render_context?.script_path),
+        template_id:
+          asNullableString(source?.template_id) ?? asNullableString(item.template_id) ?? asNullableString(item.render_context?.template_id),
+        reason: asNullableString(source?.reason) ?? asNullableString(item.reason) ?? asNullableString(item.render_context?.source_reason),
+        matched_terms: source?.matched_terms ?? item.matched_terms ?? asStringArray(item.render_context?.matched_terms),
+        source_signals: source?.source_signals ?? item.source_signals ?? asStringArray(item.render_context?.source_signals),
+        template_event_types:
+          source?.template_event_types ?? item.template_event_types ?? asStringArray(item.render_context?.template_event_types),
+        template_category:
+          asNullableString(source?.template_category) ??
+          asNullableString(item.template_category) ??
+          asNullableString(item.render_context?.template_category),
+        requires_root:
+          item.requires_root ?? source?.requires_root ?? asTruthyBoolean(item.render_context?.requires_root),
+        supports_offline:
+          item.supports_offline ?? source?.supports_offline ?? !asTruthyBoolean(item.render_context?.requires_online),
       };
     }),
     execution_count: payload.execution_count,

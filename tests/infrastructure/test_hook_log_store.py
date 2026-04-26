@@ -107,3 +107,28 @@ def test_hook_log_store_exposes_normalized_dynamic_events(tmp_path: Path) -> Non
     assert rows[0].session_id == "session-1"
     assert rows[0].source_script == "01_cipher.js"
     assert rows[0].arguments == ("plaintext",)
+
+
+def test_hook_log_store_lists_dynamic_tail_for_job(tmp_path: Path) -> None:
+    store = HookLogStore(tmp_path / "hooks.sqlite3")
+    for index in range(3):
+        store.insert(
+            HookEvent(
+                timestamp=f"2026-04-05T00:00:0{index}Z",
+                job_id="job-1",
+                event_type="method_call",
+                source="fake",
+                class_name="com.demo.Trace",
+                method_name=f"event{index}",
+                arguments=[],
+                return_value=None,
+                stacktrace="",
+                raw_payload={"session_id": "session-tail"},
+            )
+        )
+
+    rows = store.list_dynamic_tail_for_job("job-1", limit=2)
+
+    assert [row.method_name for row in rows] == ["event1", "event2"]
+    assert all(row.schema_version == "dynamic-event.v1" for row in rows)
+    assert rows[0].session_id == "session-tail"

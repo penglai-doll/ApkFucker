@@ -9,7 +9,7 @@ from typing import Mapping
 from apk_hacker.domain.models.artifact import ArtifactManifest, ArtifactRef
 from apk_hacker.domain.models.evidence import Evidence
 from apk_hacker.domain.models.finding import Finding
-from apk_hacker.domain.models.indexes import ClassIndexEntry, MethodIndex, MethodIndexEntry
+from apk_hacker.domain.models.indexes import MethodIndex
 from apk_hacker.domain.models.static_inputs import StaticInputs
 from apk_hacker.domain.models.static_result import StaticResult
 from apk_hacker.static_engine.analyzer import StaticArtifacts
@@ -42,94 +42,6 @@ def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> Path:
         content += "\n"
     path.write_text(content, encoding="utf-8")
     return path
-
-
-def _serialize_artifact_ref(artifact: ArtifactRef) -> dict[str, object]:
-    return {
-        "artifact_id": artifact.artifact_id,
-        "kind": artifact.kind,
-        "path": artifact.path,
-        "producer": artifact.producer,
-        "created_at": artifact.created_at,
-        "metadata": dict(artifact.metadata),
-    }
-
-
-def _serialize_artifact_manifest(manifest: ArtifactManifest) -> dict[str, object]:
-    return {
-        "schema_version": manifest.schema_version,
-        "case_id": manifest.case_id,
-        "sample_path": manifest.sample_path,
-        "artifacts": [_serialize_artifact_ref(item) for item in manifest.artifacts],
-    }
-
-
-def _serialize_evidence(evidence: Evidence) -> dict[str, object]:
-    return {
-        "evidence_id": evidence.evidence_id,
-        "source_type": evidence.source_type,
-        "path": evidence.path,
-        "line": evidence.line,
-        "excerpt": evidence.excerpt,
-        "tags": list(evidence.tags),
-        "metadata": dict(evidence.metadata),
-    }
-
-
-def _serialize_finding(finding: Finding) -> dict[str, object]:
-    return {
-        "finding_id": finding.finding_id,
-        "category": finding.category,
-        "severity": finding.severity,
-        "title": finding.title,
-        "summary": finding.summary,
-        "confidence": finding.confidence,
-        "evidence_ids": list(finding.evidence_ids),
-        "tags": list(finding.tags),
-    }
-
-
-def _serialize_static_result(result: StaticResult) -> dict[str, object]:
-    return {
-        "schema_version": "static-result.v1",
-        "package_name": result.package_name,
-        "technical_tags": list(result.technical_tags),
-        "dangerous_permissions": list(result.dangerous_permissions),
-        "callback_endpoints": list(result.callback_endpoints),
-        "callback_clues": list(result.callback_clues),
-        "crypto_signals": list(result.crypto_signals),
-        "packer_hints": list(result.packer_hints),
-        "limitations": list(result.limitations),
-        "findings": [_serialize_finding(item) for item in result.findings],
-        "evidence": [_serialize_evidence(item) for item in result.evidence],
-    }
-
-
-def _serialize_method_index_entry(entry: MethodIndexEntry) -> dict[str, object]:
-    return {
-        "class_name": entry.class_name,
-        "method_name": entry.method_name,
-        "parameter_types": list(entry.parameter_types),
-        "return_type": entry.return_type,
-        "is_constructor": entry.is_constructor,
-        "overload_count": entry.overload_count,
-        "source_path": entry.source_path,
-        "line_hint": entry.line_hint,
-        "declaration": entry.declaration,
-        "source_preview": entry.source_preview,
-        "tags": list(entry.tags),
-        "evidence": list(entry.evidence),
-    }
-
-
-def _serialize_class_index_entry(entry: ClassIndexEntry) -> dict[str, object]:
-    return {
-        "class_name": entry.class_name,
-        "package_name": entry.package_name,
-        "source_path": entry.source_path,
-        "method_count": entry.method_count,
-        "tags": list(entry.tags),
-    }
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,8 +94,8 @@ class StaticResultNormalizer:
         method_index_path = normalized_root / "method-index.jsonl"
         class_index_path = normalized_root / "class-index.jsonl"
 
-        method_rows = [_serialize_method_index_entry(item) for item in method_index.methods]
-        class_rows = [_serialize_class_index_entry(item) for item in method_index.classes]
+        method_rows = [item.to_payload() for item in method_index.methods]
+        class_rows = [item.to_payload() for item in method_index.classes]
 
         manifest = ArtifactManifest(
             schema_version="artifact-manifest.v1",
@@ -207,12 +119,12 @@ class StaticResultNormalizer:
             ),
         )
 
-        _write_json(static_result_path, _serialize_static_result(static_result))
-        _write_jsonl(findings_path, [_serialize_finding(item) for item in findings])
-        _write_jsonl(evidence_path, [_serialize_evidence(item) for item in evidence])
+        _write_json(static_result_path, static_result.to_payload())
+        _write_jsonl(findings_path, [item.to_payload() for item in findings])
+        _write_jsonl(evidence_path, [item.to_payload() for item in evidence])
         _write_jsonl(method_index_path, method_rows)
         _write_jsonl(class_index_path, class_rows)
-        _write_json(manifest_path, _serialize_artifact_manifest(manifest))
+        _write_json(manifest_path, manifest.to_payload())
 
         return NormalizedStaticArtifacts(
             manifest=manifest,

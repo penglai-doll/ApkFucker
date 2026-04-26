@@ -47,6 +47,10 @@ def test_workspace_traffic_service_import_har_updates_runtime_state_and_persists
     reloaded = service.get_capture(updated)
     assert reloaded is not None
     assert len(reloaded.flows) == 2
+    assert reloaded.flows[0].capture_id == service.capture_id_for_path(capture.source_path)
+    assert reloaded.flows[0].schema_version == "traffic-flow.v1"
+    assert reloaded.flows[0].host == "demo-c2.example"
+    assert reloaded.flows[0].path == "/api/upload"
     assert reloaded.flows[0].url == "https://demo-c2.example/api/upload"
     store = TrafficFlowStore(service.traffic_flow_store_path(workspace_root))
     assert len(store.list_for_capture(service.capture_id_for_path(capture.source_path))) == 2

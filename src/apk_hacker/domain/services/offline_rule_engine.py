@@ -20,6 +20,9 @@ class OfflineRuleEngine:
                     template_id="ssl.okhttp3_unpin",
                     template_name="OkHttp3 SSL Unpinning",
                     plugin_id="builtin.ssl-okhttp3-unpin",
+                    source_signals=("callback_endpoints", "technical_tags"),
+                    template_event_types=("template_loaded", "ssl_unpinning_bypass", "method_error"),
+                    template_category="ssl",
                 )
             )
 
@@ -35,6 +38,9 @@ class OfflineRuleEngine:
                     template_id="crypto.cipher_monitor",
                     template_name="Cipher Monitor",
                     plugin_id="builtin.crypto-cipher-monitor",
+                    source_signals=("crypto_signals",),
+                    template_event_types=("template_loaded", "crypto_call", "crypto_return", "method_error"),
+                    template_category="crypto",
                 )
             )
 
@@ -50,6 +56,9 @@ class OfflineRuleEngine:
                     template_id="anti_detection.frida_detect_bypass",
                     template_name="Frida Detection Bypass",
                     plugin_id="builtin.anti-detection-frida-bypass",
+                    source_signals=("packer_hints",),
+                    template_event_types=("template_loaded", "anti_detection_bypass", "method_error"),
+                    template_category="anti_detection",
                 )
             )
 

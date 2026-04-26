@@ -10,8 +10,9 @@ from apk_hacker.domain.models.static_inputs import StaticInputs
 from apk_hacker.domain.models.traffic import TrafficCapture
 from apk_hacker.domain.models.traffic import TrafficCaptureSummary
 from apk_hacker.domain.models.traffic import TrafficCaptureProvenance
-from apk_hacker.domain.models.traffic import TrafficFlowSummary
+from apk_hacker.domain.models.traffic import TrafficFlow
 from apk_hacker.domain.models.traffic import TrafficHostSummary
+from apk_hacker.domain.models.traffic import traffic_capture_id_for_path
 
 MANUAL_HAR_PROVENANCE_KIND = "manual_har"
 LIVE_CAPTURE_PROVENANCE_KIND = "live_capture"
@@ -28,7 +29,7 @@ def _preview(text: object | None, limit: int = 120) -> str:
     normalized = " ".join(str(text).split())
     if len(normalized) <= limit:
         return normalized
-    return normalized[: limit - 1] + "…"
+    return normalized[: limit - 3] + "..."
 
 
 def _content_text(section: object) -> str:
@@ -36,6 +37,35 @@ def _content_text(section: object) -> str:
         return ""
     text = section.get("text")
     return str(text) if text is not None else ""
+
+
+def _headers(section: object) -> tuple[tuple[str, str], ...]:
+    if not isinstance(section, list):
+        return ()
+    headers: list[tuple[str, str]] = []
+    for item in section:
+        if not isinstance(item, dict):
+            continue
+        name = item.get("name")
+        value = item.get("value")
+        if name is None or value is None:
+            continue
+        headers.append((str(name), str(value)))
+    return tuple(headers)
+
+
+def _body_size(section: object) -> int | None:
+    if not isinstance(section, dict):
+        return None
+    value = section.get("bodySize")
+    if isinstance(value, int) and value >= 0:
+        return value
+    content = section.get("content")
+    if isinstance(content, dict):
+        size = content.get("size")
+        if isinstance(size, int) and size >= 0:
+            return size
+    return None
 
 
 def _indicators(static_inputs: StaticInputs) -> tuple[str, ...]:
@@ -88,7 +118,8 @@ class TrafficCaptureService:
             raise ValueError(f"HAR file is missing log.entries: {path}")
 
         indicators = _indicators(static_inputs)
-        flows: list[TrafficFlowSummary] = []
+        capture_id = traffic_capture_id_for_path(path)
+        flows: list[TrafficFlow] = []
         host_stats: dict[str, dict[str, int]] = defaultdict(
             lambda: {
                 "flow_count": 0,
@@ -132,16 +163,29 @@ class TrafficCaptureService:
             if matched:
                 host_stats[host]["suspicious_count"] += 1
             flows.append(
-                TrafficFlowSummary(
+                TrafficFlow(
+                    capture_id=capture_id,
                     flow_id=f"flow-{index}",
+                    timestamp=str(entry["startedDateTime"]) if isinstance(entry.get("startedDateTime"), str) else None,
                     method=method,
                     url=url,
+                    scheme=scheme,
+                    host=host,
+                    path=parsed.path or "/",
                     status_code=status_code,
                     mime_type=mime_type,
+                    request_headers=_headers(request.get("headers")),
+                    response_headers=_headers(response.get("headers")),
                     request_preview=_preview(request_text),
                     response_preview=_preview(response_text),
+                    request_body_size=_body_size(request),
+                    response_body_size=_body_size(response),
                     matched_indicators=matched,
                     suspicious=bool(matched),
+                    raw_payload={
+                        "startedDateTime": entry.get("startedDateTime"),
+                        "time": entry.get("time"),
+                    },
                 )
             )
 
@@ -180,13 +224,14 @@ class TrafficCaptureService:
             flows=tuple(flows),
         )
 
-    def load_live_preview(self, preview_path: Path, *, limit: int = 8) -> tuple[tuple[dict[str, object], ...], bool]:
+    def load_live_preview(self, preview_path: Path, *, limit: int = 8) -> tuple[tuple[TrafficFlow, ...], bool]:
         path = preview_path.expanduser().resolve()
         if not path.exists():
             return (), False
 
         bounded_limit = max(1, min(limit, 20))
-        recent_items: deque[dict[str, object]] = deque(maxlen=bounded_limit)
+        capture_id = traffic_capture_id_for_path(path)
+        recent_items: deque[TrafficFlow] = deque(maxlen=bounded_limit)
         total_valid = 0
 
         with path.open("r", encoding="utf-8") as handle:
@@ -208,15 +253,28 @@ class TrafficCaptureService:
                 if not isinstance(matched_indicators, list):
                     matched_indicators = []
                 status_code = payload.get("status_code")
-                preview_item = {
-                    "flow_id": str(payload.get("flow_id") or f"preview-{index}"),
-                    "timestamp": str(payload["timestamp"]) if isinstance(payload.get("timestamp"), str) else None,
-                    "method": method,
-                    "url": url,
-                    "status_code": status_code if isinstance(status_code, int) else None,
-                    "matched_indicators": [str(value) for value in matched_indicators],
-                    "suspicious": bool(payload.get("suspicious", False)),
-                }
+                preview_item = TrafficFlow(
+                    capture_id=capture_id,
+                    flow_id=str(payload.get("flow_id") or f"preview-{index}"),
+                    timestamp=str(payload["timestamp"]) if isinstance(payload.get("timestamp"), str) else None,
+                    method=method,
+                    url=url,
+                    status_code=status_code if isinstance(status_code, int) else None,
+                    mime_type=str(payload["mime_type"]) if isinstance(payload.get("mime_type"), str) else None,
+                    request_preview=str(payload.get("request_preview", "")),
+                    response_preview=str(payload.get("response_preview", "")),
+                    request_body_size=(
+                        payload.get("request_body_size") if isinstance(payload.get("request_body_size"), int) else None
+                    ),
+                    response_body_size=(
+                        payload.get("response_body_size") if isinstance(payload.get("response_body_size"), int) else None
+                    ),
+                    matched_indicators=tuple(str(value) for value in matched_indicators),
+                    suspicious=bool(payload.get("suspicious", False)),
+                    raw_payload={
+                        "preview_path": str(path),
+                    },
+                )
                 total_valid += 1
                 recent_items.append(preview_item)
 

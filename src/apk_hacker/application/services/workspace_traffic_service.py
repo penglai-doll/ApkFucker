@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 from dataclasses import replace
 from pathlib import Path
@@ -12,11 +11,8 @@ from apk_hacker.application.services.traffic_capture_service import TrafficCaptu
 from apk_hacker.application.services.workspace_runtime_state import WorkspaceRuntimeState
 from apk_hacker.domain.models.static_inputs import StaticInputs
 from apk_hacker.domain.models.traffic import TrafficCapture
-from apk_hacker.domain.models.traffic import TrafficCaptureProvenance
-from apk_hacker.domain.models.traffic import TrafficCaptureSummary
-from apk_hacker.domain.models.traffic import TrafficFlowSummary
-from apk_hacker.domain.models.traffic import TrafficHostSummary
 from apk_hacker.domain.models.traffic import TrafficLiveCaptureState
+from apk_hacker.domain.models.traffic import traffic_capture_id_for_path
 from apk_hacker.infrastructure.persistence.traffic_flow_store import TrafficFlowStore
 
 
@@ -36,7 +32,13 @@ class WorkspaceTrafficService:
             payload = json.loads(state.traffic_capture_summary_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError, ValueError):
             return None
-        capture = _deserialize_traffic_capture(payload)
+        capture = TrafficCapture.from_payload(
+            payload,
+            provenance_factory=lambda source_path: build_traffic_capture_provenance(
+                infer_traffic_capture_provenance_kind(source_path),
+                source_path,
+            ),
+        )
         if capture is None:
             return None
         store_path = self.traffic_flow_store_path(state.workspace_root)
@@ -75,7 +77,7 @@ class WorkspaceTrafficService:
         summary_path = self.traffic_capture_summary_path(state.workspace_root)
         summary_path.parent.mkdir(parents=True, exist_ok=True)
         summary_path.write_text(
-            json.dumps(_serialize_traffic_capture(capture), ensure_ascii=False, indent=2),
+            json.dumps(capture.to_payload(), ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
         flow_store = self._traffic_flow_store_factory(self.traffic_flow_store_path(state.workspace_root))
@@ -111,124 +113,4 @@ class WorkspaceTrafficService:
         return workspace_root / "evidence" / "traffic" / "traffic-flows.sqlite3"
 
     def capture_id_for_path(self, source_path: Path) -> str:
-        normalized = str(source_path.expanduser().resolve())
-        digest = hashlib.sha1(normalized.encode("utf-8"), usedforsecurity=False).hexdigest()
-        return f"capture-{digest}"
-
-
-def _serialize_traffic_capture(capture: TrafficCapture) -> dict[str, object]:
-    summary_payload = {
-        "https_flow_count": capture.https_flow_count,
-        "matched_indicator_count": capture.matched_indicator_count,
-        "top_hosts": [
-            {
-                "host": host.host,
-                "flow_count": host.flow_count,
-                "suspicious_count": host.suspicious_count,
-                "https_flow_count": host.https_flow_count,
-            }
-            for host in capture.top_hosts
-        ],
-        "suspicious_hosts": [
-            {
-                "host": host.host,
-                "flow_count": host.flow_count,
-                "suspicious_count": host.suspicious_count,
-                "https_flow_count": host.https_flow_count,
-            }
-            for host in capture.suspicious_hosts
-        ],
-    }
-    return {
-        "source_path": str(capture.source_path),
-        "provenance": {
-            "kind": capture.provenance.kind,
-            "label": capture.provenance.label,
-        },
-        "flow_count": capture.flow_count,
-        "suspicious_count": capture.suspicious_count,
-        "https_flow_count": capture.https_flow_count,
-        "matched_indicator_count": capture.matched_indicator_count,
-        "top_hosts": summary_payload["top_hosts"],
-        "suspicious_hosts": summary_payload["suspicious_hosts"],
-        "summary": summary_payload,
-    }
-
-
-def _deserialize_traffic_capture(payload: object) -> TrafficCapture | None:
-    if not isinstance(payload, dict):
-        return None
-    source_path_raw = payload.get("source_path")
-    flow_count = payload.get("flow_count")
-    suspicious_count = payload.get("suspicious_count")
-    if not isinstance(source_path_raw, str) or not isinstance(flow_count, int) or not isinstance(suspicious_count, int):
-        return None
-    source_path = Path(source_path_raw)
-    summary_payload = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
-    https_flow_count = summary_payload.get("https_flow_count", payload.get("https_flow_count", 0))
-    matched_indicator_count = summary_payload.get("matched_indicator_count", payload.get("matched_indicator_count", 0))
-    top_hosts_payload = summary_payload.get("top_hosts", payload.get("top_hosts", []))
-    suspicious_hosts_payload = summary_payload.get("suspicious_hosts", payload.get("suspicious_hosts", []))
-    provenance_payload = payload.get("provenance")
-    if isinstance(provenance_payload, dict):
-        kind = provenance_payload.get("kind")
-        label = provenance_payload.get("label")
-        if isinstance(kind, str) and isinstance(label, str):
-            provenance = TrafficCaptureProvenance(kind=kind, label=label)
-        else:
-            provenance = build_traffic_capture_provenance(infer_traffic_capture_provenance_kind(source_path), source_path)
-    else:
-        provenance = build_traffic_capture_provenance(infer_traffic_capture_provenance_kind(source_path), source_path)
-
-    def _host_summary(item: object) -> TrafficHostSummary | None:
-        if not isinstance(item, dict):
-            return None
-        host = item.get("host")
-        flow_count_value = item.get("flow_count")
-        suspicious_count_value = item.get("suspicious_count")
-        https_flow_count_value = item.get("https_flow_count", 0)
-        if not isinstance(host, str) or not isinstance(flow_count_value, int) or not isinstance(suspicious_count_value, int):
-            return None
-        if not isinstance(https_flow_count_value, int):
-            https_flow_count_value = 0
-        return TrafficHostSummary(
-            host=host,
-            flow_count=flow_count_value,
-            suspicious_count=suspicious_count_value,
-            https_flow_count=https_flow_count_value,
-        )
-
-    top_hosts = tuple(host for host in (_host_summary(item) for item in top_hosts_payload or []) if host is not None)
-    suspicious_hosts = tuple(host for host in (_host_summary(item) for item in suspicious_hosts_payload or []) if host is not None)
-    flows_payload = payload.get("flows", [])
-    flows = tuple(
-        TrafficFlowSummary(
-            flow_id=str(item["flow_id"]),
-            method=str(item["method"]),
-            url=str(item["url"]),
-            status_code=item.get("status_code") if isinstance(item.get("status_code"), int) else None,
-            mime_type=item.get("mime_type") if isinstance(item.get("mime_type"), str) else None,
-            request_preview=str(item.get("request_preview", "")),
-            response_preview=str(item.get("response_preview", "")),
-            matched_indicators=tuple(str(value) for value in item.get("matched_indicators", []) or []),
-            suspicious=bool(item.get("suspicious", False)),
-        )
-        for item in flows_payload
-        if isinstance(item, dict)
-        and isinstance(item.get("flow_id"), str)
-        and isinstance(item.get("method"), str)
-        and isinstance(item.get("url"), str)
-    )
-    return TrafficCapture(
-        source_path=source_path,
-        provenance=provenance,
-        flow_count=flow_count,
-        suspicious_count=suspicious_count,
-        summary=TrafficCaptureSummary(
-            https_flow_count=https_flow_count if isinstance(https_flow_count, int) else 0,
-            matched_indicator_count=matched_indicator_count if isinstance(matched_indicator_count, int) else 0,
-            top_hosts=top_hosts,
-            suspicious_hosts=suspicious_hosts,
-        ),
-        flows=flows,
-    )
+        return traffic_capture_id_for_path(source_path)

@@ -30,6 +30,11 @@ def test_traffic_capture_service_flags_callback_related_flows() -> None:
     assert capture.suspicious_count == 1
     assert capture.https_flow_count == 2
     assert capture.matched_indicator_count == 2
+    assert capture.flows[0].schema_version == "traffic-flow.v1"
+    assert capture.flows[0].capture_id.startswith("capture-")
+    assert capture.flows[0].scheme == "https"
+    assert capture.flows[0].host == "demo-c2.example"
+    assert capture.flows[0].path == "/api/upload"
     assert capture.flows[0].url == "https://demo-c2.example/api/upload"
     assert capture.flows[0].suspicious is True
     assert "demo-c2.example" in capture.flows[0].matched_indicators
@@ -58,6 +63,6 @@ def test_traffic_capture_service_loads_recent_live_preview_entries(tmp_path: Pat
     items, truncated = TrafficCaptureService().load_live_preview(preview_path, limit=2)
 
     assert truncated is True
-    assert [item["flow_id"] for item in items] == ["preview-2", "preview-3"]
-    assert items[-1]["url"] == "https://demo-c2.example/api/ping"
-    assert items[-1]["suspicious"] is True
+    assert [item.flow_id for item in items] == ["preview-2", "preview-3"]
+    assert items[-1].url == "https://demo-c2.example/api/ping"
+    assert items[-1].suspicious is True

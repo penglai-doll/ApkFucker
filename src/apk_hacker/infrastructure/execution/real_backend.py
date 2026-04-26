@@ -13,7 +13,6 @@ from uuid import uuid4
 
 from apk_hacker.domain.models.execution import ExecutionRequest
 from apk_hacker.domain.models.hook_event import HookEvent
-from apk_hacker.domain.models.hook_plan import HookPlan, HookPlanItem
 from apk_hacker.infrastructure.execution.backend import ExecutionBackend, ExecutionBackendUnavailable
 from apk_hacker.infrastructure.execution.backend import ExecutionCancelled
 
@@ -41,32 +40,6 @@ def _split_command(command: str) -> list[str]:
         else part
         for part in parts
     ]
-
-
-def _serialize_plan(plan: HookPlan) -> dict[str, object]:
-    def serialize_item(item: HookPlanItem) -> dict[str, object]:
-        target = None
-        if item.target is not None:
-            target = {
-                "target_id": item.target.target_id,
-                "class_name": item.target.class_name,
-                "method_name": item.target.method_name,
-                "parameter_types": list(item.target.parameter_types),
-                "return_type": item.target.return_type,
-                "source_origin": item.target.source_origin,
-                "notes": item.target.notes,
-            }
-        return {
-            "item_id": item.item_id,
-            "kind": item.kind,
-            "enabled": item.enabled,
-            "inject_order": item.inject_order,
-            "target": target,
-            "render_context": dict(item.render_context),
-            "plugin_id": item.plugin_id,
-        }
-
-    return {"items": [serialize_item(item) for item in plan.items]}
 
 
 def _coerce_event(job_id: str, payload: Mapping[str, object]) -> HookEvent | None:
@@ -239,7 +212,7 @@ class CommandExecutionRunner:
 
             plan_path = workdir / "plan.json"
             plan_path.write_text(
-                json.dumps(_serialize_plan(request.plan), ensure_ascii=False, indent=2),
+                json.dumps(request.plan.to_payload(), ensure_ascii=False, indent=2),
                 encoding="utf-8",
             )
             stdout_path = workdir / "stdout.log"

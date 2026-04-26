@@ -85,6 +85,9 @@ class HookLogStore:
     def list_dynamic_for_job(self, job_id: str) -> list[DynamicEvent]:
         return [DynamicEvent.from_hook_event(event) for event in self.list_for_job(job_id)]
 
+    def list_dynamic_tail_for_job(self, job_id: str, limit: int = 20) -> list[DynamicEvent]:
+        return [DynamicEvent.from_hook_event(event) for event in self.list_tail_for_job(job_id, limit)]
+
     @staticmethod
     def _rows_to_events(rows: list[tuple[object, ...]]) -> list[HookEvent]:
         return [

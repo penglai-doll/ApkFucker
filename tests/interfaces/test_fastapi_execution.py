@@ -1751,3 +1751,7 @@ def test_execution_history_routes_replay_completed_run_events(tmp_path: Path) ->
     assert events_payload["case_id"] == "case-history"
     assert len(events_payload["items"]) > 0
     assert all(item["type"] == "execution.event" for item in events_payload["items"])
+    first_event = events_payload["items"][0]
+    assert first_event["schema_version"] == "dynamic-event.v1"
+    assert first_event["event_type"] == first_event["payload"]["event_type"]
+    assert first_event["hook_type"]

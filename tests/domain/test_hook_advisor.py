@@ -34,6 +34,7 @@ def test_offline_hook_advisor_prioritizes_methods_from_static_callback_clues() -
     assert recommendations[0].method.method_name == "buildUploadUrl"
     assert "callback" in recommendations[0].reason.lower()
     assert "upload" in recommendations[0].matched_terms
+    assert "callback_endpoints" in recommendations[0].source_signals
     assert "onCreate" not in [item.method.method_name for item in recommendations if item.method is not None]
 
 
@@ -81,7 +82,9 @@ def test_offline_hook_advisor_uses_permission_and_crypto_terms_for_scoring() -> 
         "recordAudioClip",
     ]
     assert "crypto" in method_recommendations[0].reason.lower()
+    assert "crypto_signals" in method_recommendations[0].source_signals
     assert "audio" in method_recommendations[1].matched_terms
+    assert "dangerous_permissions" in method_recommendations[1].source_signals
 
 
 def test_offline_hook_advisor_adds_template_recommendations_from_static_signals() -> None:

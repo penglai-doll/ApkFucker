@@ -229,15 +229,55 @@ function deriveLiveTrafficSnapshot(detail: WorkspaceDetailResponse | null): Live
   if (!detail || !runtime) {
     return null;
   }
-  if (!runtime.live_traffic_status && !runtime.live_traffic_artifact_path && !runtime.live_traffic_message) {
+  if (
+    !runtime.live_traffic_status &&
+    !runtime.live_traffic_artifact_path &&
+    !runtime.live_traffic_preview_path &&
+    !runtime.live_traffic_message
+  ) {
     return null;
   }
   return {
     case_id: detail.case_id,
     status: runtime.live_traffic_status ?? "idle",
+    session_id: runtime.live_traffic_session_id ?? null,
     artifact_path: runtime.live_traffic_artifact_path ?? null,
+    output_path: runtime.live_traffic_output_path ?? runtime.live_traffic_artifact_path ?? null,
+    preview_path: runtime.live_traffic_preview_path ?? null,
     message: runtime.live_traffic_message ?? null,
   };
+}
+
+function hasLiveTrafficArtifact(snapshot: LiveTrafficCaptureResponse): boolean {
+  return Boolean(snapshot.artifact_path ?? snapshot.output_path ?? snapshot.preview_path);
+}
+
+function isEmptyIdleLiveTrafficSnapshot(snapshot: LiveTrafficCaptureResponse): boolean {
+  return (
+    snapshot.status === "idle" &&
+    snapshot.session_id == null &&
+    !hasLiveTrafficArtifact(snapshot) &&
+    snapshot.message == null
+  );
+}
+
+function shouldApplyLiveTrafficCaptureSnapshot(
+  current: LiveTrafficCaptureResponse | null,
+  next: LiveTrafficCaptureResponse | null,
+): boolean {
+  if (!current) {
+    return true;
+  }
+  if (!next) {
+    return current.status === "idle" || current.status === "unavailable";
+  }
+  if (current.case_id !== next.case_id) {
+    return true;
+  }
+  if (isEmptyIdleLiveTrafficSnapshot(next)) {
+    return !["running", "starting", "stopping", "stopped"].includes(current.status) && !hasLiveTrafficArtifact(current);
+  }
+  return true;
 }
 
 function buildEmptyLiveTrafficPreview(caseId: string, status: string): LiveTrafficPreviewResponse {
@@ -948,6 +988,26 @@ export function CaseWorkspacePage(): JSX.Element {
     WORKSPACE_SECTIONS[0].id,
   );
   const [expandedWorkspaceMetricId, setExpandedWorkspaceMetricId] = useState<string | null>(null);
+  const liveTrafficCaptureRef = useRef<LiveTrafficCaptureResponse | null>(null);
+
+  function replaceLiveTrafficCapture(next: LiveTrafficCaptureResponse | null): void {
+    liveTrafficCaptureRef.current = next;
+    setLiveTrafficCapture(next);
+  }
+
+  function applyLiveTrafficCaptureSnapshot(next: LiveTrafficCaptureResponse | null): boolean {
+    if (!shouldApplyLiveTrafficCaptureSnapshot(liveTrafficCaptureRef.current, next)) {
+      return false;
+    }
+    replaceLiveTrafficCapture(next);
+    return true;
+  }
+
+  function updateLiveTrafficCaptureSnapshot(
+    updater: (current: LiveTrafficCaptureResponse | null) => LiveTrafficCaptureResponse | null,
+  ): void {
+    replaceLiveTrafficCapture(updater(liveTrafficCaptureRef.current));
+  }
 
   async function refreshRuntimeSnapshots(requestCaseId: string): Promise<void> {
     try {
@@ -964,7 +1024,7 @@ export function CaseWorkspacePage(): JSX.Element {
       setHookPlanState(nextHookPlan);
       setHookPlanItems(nextHookPlan.items);
       setTrafficCapture(nextTrafficCapture);
-      setLiveTrafficCapture(nextLiveTrafficCapture);
+      applyLiveTrafficCaptureSnapshot(nextLiveTrafficCapture);
     } catch {
       if (activeCaseIdRef.current !== requestCaseId) {
         return;
@@ -1101,7 +1161,7 @@ export function CaseWorkspacePage(): JSX.Element {
       setTrafficImportMessage(null);
       setTrafficError(null);
       setIsImportingTraffic(false);
-      setLiveTrafficCapture(null);
+      replaceLiveTrafficCapture(null);
       setLiveTrafficPreview(null);
       setLiveTrafficError(null);
       setIsStartingLiveTraffic(false);
@@ -1174,7 +1234,7 @@ export function CaseWorkspacePage(): JSX.Element {
     setTrafficImportMessage(null);
     setTrafficError(null);
     setIsImportingTraffic(false);
-    setLiveTrafficCapture(null);
+    replaceLiveTrafficCapture(null);
     setLiveTrafficPreview(null);
     setLiveTrafficError(null);
     setIsStartingLiveTraffic(false);
@@ -1215,7 +1275,7 @@ export function CaseWorkspacePage(): JSX.Element {
         setDetail(response);
         setCustomScripts(response.custom_scripts);
         setExecutionResponse(deriveExecutionSnapshot(response));
-        setLiveTrafficCapture(deriveLiveTrafficSnapshot(response));
+        applyLiveTrafficCaptureSnapshot(deriveLiveTrafficSnapshot(response));
       })
       .catch(() => {
         if (!active) {
@@ -1391,10 +1451,13 @@ export function CaseWorkspacePage(): JSX.Element {
           }
         }
         if (event.type === "traffic.live.updated") {
-          setLiveTrafficCapture((current) => ({
+          updateLiveTrafficCaptureSnapshot((current) => ({
             case_id: event.case_id ?? caseId,
             status: event.status ?? current?.status ?? "idle",
+            session_id: event.session_id ?? current?.session_id ?? null,
             artifact_path: event.artifact_path ?? current?.artifact_path ?? null,
+            output_path: event.output_path ?? current?.output_path ?? event.artifact_path ?? current?.artifact_path ?? null,
+            preview_path: event.preview_path ?? current?.preview_path ?? null,
             message: event.message ?? current?.message ?? null,
           }));
           void getLiveTrafficPreview(caseId)
@@ -1655,7 +1718,7 @@ export function CaseWorkspacePage(): JSX.Element {
 
   useEffect(() => {
     if (!caseId || !detail) {
-      setLiveTrafficCapture(null);
+      replaceLiveTrafficCapture(null);
       setLiveTrafficPreview(null);
       setLiveTrafficError(null);
       setIsStartingLiveTraffic(false);
@@ -1671,8 +1734,8 @@ export function CaseWorkspacePage(): JSX.Element {
         if (!active) {
           return;
         }
-        setLiveTrafficCapture(response);
-        if (response.status !== "running" && response.artifact_path === null) {
+        const applied = applyLiveTrafficCaptureSnapshot(response);
+        if (applied && response.status !== "running" && response.artifact_path === null) {
           setLiveTrafficPreview(null);
         }
       })
@@ -1680,7 +1743,7 @@ export function CaseWorkspacePage(): JSX.Element {
         if (!active) {
           return;
         }
-        setLiveTrafficCapture(null);
+        replaceLiveTrafficCapture(null);
         setLiveTrafficError("实时抓包状态暂时不可用，请稍后重试。");
       });
 
@@ -1698,7 +1761,7 @@ export function CaseWorkspacePage(): JSX.Element {
 
     const shouldPollPreview =
       liveTrafficCapture?.status === "running" ||
-      (liveTrafficCapture?.artifact_path ?? null) !== null;
+      (liveTrafficCapture?.artifact_path ?? liveTrafficCapture?.output_path ?? liveTrafficCapture?.preview_path ?? null) !== null;
     if (!shouldPollPreview) {
       setLiveTrafficPreview(buildEmptyLiveTrafficPreview(activePreviewCaseId, liveTrafficCapture?.status ?? "idle"));
       return;
@@ -1845,7 +1908,7 @@ export function CaseWorkspacePage(): JSX.Element {
       setDetail(response);
       setCustomScripts(response.custom_scripts);
       setExecutionResponse(deriveExecutionSnapshot(response));
-      setLiveTrafficCapture(deriveLiveTrafficSnapshot(response));
+      applyLiveTrafficCaptureSnapshot(deriveLiveTrafficSnapshot(response));
       setMethodIndexProgress(100);
       setMethodIndexStageLabel("方法索引已完成。");
       setMethodIndexMessage(
@@ -2412,7 +2475,7 @@ export function CaseWorkspacePage(): JSX.Element {
       if (activeCaseIdRef.current !== requestCaseId) {
         return;
       }
-      setLiveTrafficCapture(response);
+      replaceLiveTrafficCapture(response);
     } catch (error) {
       if (activeCaseIdRef.current !== requestCaseId) {
         return;
@@ -2438,7 +2501,7 @@ export function CaseWorkspacePage(): JSX.Element {
       if (activeCaseIdRef.current !== requestCaseId) {
         return;
       }
-      setLiveTrafficCapture(response);
+      replaceLiveTrafficCapture(response);
       if (response.artifact_path) {
         const nextCapture = await getWorkspaceTraffic(requestCaseId);
         if (activeCaseIdRef.current !== requestCaseId) {

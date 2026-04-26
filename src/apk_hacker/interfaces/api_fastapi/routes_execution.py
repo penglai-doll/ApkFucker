@@ -10,6 +10,7 @@ from apk_hacker.domain.models.execution import ExecutionRuntimeOptions
 from apk_hacker.interfaces.api_fastapi.execution_dispatcher import ExecutionConflictError
 from apk_hacker.interfaces.api_fastapi.execution_dispatcher import ExecutionDispatcher
 from apk_hacker.interfaces.api_fastapi.execution_dispatcher import ExecutionNotRunningError
+from apk_hacker.interfaces.api_fastapi.event_presenter import dynamic_event_response
 from apk_hacker.interfaces.api_fastapi.schemas import ExecutionCancelResponse
 from apk_hacker.interfaces.api_fastapi.schemas import ExecutionHistoryEntryResponse
 from apk_hacker.interfaces.api_fastapi.schemas import ExecutionHistoryResponse
@@ -17,7 +18,6 @@ from apk_hacker.interfaces.api_fastapi.schemas import ExecutionPreflightRequest
 from apk_hacker.interfaces.api_fastapi.schemas import ExecutionPreflightResponse
 from apk_hacker.interfaces.api_fastapi.schemas import ExecutionStartRequest
 from apk_hacker.interfaces.api_fastapi.schemas import ExecutionStartResponse
-from apk_hacker.interfaces.api_fastapi.schemas import WorkspaceEventResponse
 from apk_hacker.interfaces.api_fastapi.schemas import WorkspaceEventsResponse
 from apk_hacker.interfaces.api_fastapi.websocket_hub import WebSocketHub
 
@@ -32,27 +32,6 @@ def build_execution_router(
         hub=hub,
         workspace_runtime_service=workspace_runtime_service,
     )
-
-    def _to_workspace_event(case_id: str, event) -> WorkspaceEventResponse:
-        message_parts = [f"{event.class_name}.{event.method_name}"]
-        if event.return_value:
-            message_parts.append(event.return_value)
-        return WorkspaceEventResponse(
-            type="execution.event",
-            case_id=case_id,
-            timestamp=event.timestamp,
-            message=" · ".join(message_parts),
-            payload={
-                "event_type": event.event_type,
-                "source": event.source,
-                "class_name": event.class_name,
-                "method_name": event.method_name,
-                "arguments": list(event.arguments),
-                "return_value": event.return_value,
-                "stacktrace": event.stacktrace,
-                "raw_payload": dict(event.raw_payload),
-            },
-        )
 
     @router.post(
         "/{case_id}/executions/preflight",
@@ -126,14 +105,18 @@ def build_execution_router(
     )
     def get_execution_history_events(case_id: str, history_id: str, limit: int = 20) -> WorkspaceEventsResponse:
         try:
-            events = workspace_runtime_service.get_execution_events(case_id, limit=limit, history_id=history_id)
+            events = workspace_runtime_service.get_execution_dynamic_events(
+                case_id,
+                limit=limit,
+                history_id=history_id,
+            )
         except CaseNotFoundError as exc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Case not found") from exc
         except KeyError as exc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Execution history not found") from exc
         return WorkspaceEventsResponse(
             case_id=case_id,
-            items=[_to_workspace_event(case_id, event) for event in events],
+            items=[dynamic_event_response(case_id, event) for event in events],
         )
 
     @router.post(

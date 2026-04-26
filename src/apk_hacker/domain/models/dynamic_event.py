@@ -21,6 +21,7 @@ class DynamicEvent:
     return_value: str | None
     stacktrace: str
     raw_payload: dict[str, Any]
+    schema_version: str = "dynamic-event.v1"
 
     @classmethod
     def from_hook_event(cls, event: HookEvent) -> "DynamicEvent":
@@ -41,6 +42,31 @@ class DynamicEvent:
             stacktrace=event.stacktrace,
             raw_payload=raw_payload,
         )
+
+    @property
+    def message(self) -> str:
+        parts = [f"{self.class_name}.{self.method_name}"]
+        if self.return_value:
+            parts.append(self.return_value)
+        return " -> ".join(parts)
+
+    def to_payload(self) -> dict[str, object]:
+        return {
+            "schema_version": self.schema_version,
+            "timestamp": self.timestamp,
+            "job_id": self.job_id,
+            "session_id": self.session_id,
+            "event_type": self.event_type,
+            "hook_type": self.hook_type,
+            "source": self.source,
+            "source_script": self.source_script,
+            "class_name": self.class_name,
+            "method_name": self.method_name,
+            "arguments": list(self.arguments),
+            "return_value": self.return_value,
+            "stacktrace": self.stacktrace,
+            "raw_payload": dict(self.raw_payload),
+        }
 
 
 def _first_text(payload: dict[str, Any], *keys: str) -> str | None:

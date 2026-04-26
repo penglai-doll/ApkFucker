@@ -17,3 +17,8 @@ class HookRecommendation:
     template_id: str | None = None
     template_name: str | None = None
     plugin_id: str | None = None
+    source_signals: tuple[str, ...] = ()
+    template_event_types: tuple[str, ...] = ()
+    template_category: str | None = None
+    requires_root: bool = False
+    supports_offline: bool = True

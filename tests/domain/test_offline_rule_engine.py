@@ -32,6 +32,18 @@ def test_offline_rule_engine_emits_template_recommendations_for_network_crypto_a
     assert "Frida Detection Bypass" in titles
 
 
+def test_offline_rule_engine_records_template_signal_sources() -> None:
+    recommendations = OfflineRuleEngine().recommend(_static_inputs())
+
+    by_title = {item.title: item for item in recommendations}
+
+    assert by_title["OkHttp3 SSL Unpinning"].source_signals == ("callback_endpoints", "technical_tags")
+    assert by_title["OkHttp3 SSL Unpinning"].template_category == "ssl"
+    assert "ssl_unpinning_bypass" in by_title["OkHttp3 SSL Unpinning"].template_event_types
+    assert by_title["Cipher Monitor"].source_signals == ("crypto_signals",)
+    assert by_title["Frida Detection Bypass"].source_signals == ("packer_hints",)
+
+
 def test_offline_rule_engine_skips_templates_without_matching_static_signals() -> None:
     recommendations = OfflineRuleEngine().recommend(
         _static_inputs(

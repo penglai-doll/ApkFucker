@@ -95,6 +95,11 @@ export type HookRecommendationSummary = {
   template_id: string | null;
   template_name: string | null;
   plugin_id: string | null;
+  source_signals?: string[];
+  template_event_types?: string[];
+  template_category?: string | null;
+  requires_root?: boolean;
+  supports_offline?: boolean;
 };
 
 export type WorkspaceRecommendationsResponse = {
@@ -187,6 +192,14 @@ export type HookPlanItemSummary = {
   template_name: string | null;
   script_name: string | null;
   script_path: string | null;
+  template_id?: string | null;
+  reason?: string | null;
+  matched_terms?: string[];
+  source_signals?: string[];
+  template_event_types?: string[];
+  template_category?: string | null;
+  requires_root?: boolean;
+  supports_offline?: boolean;
 };
 
 export type WorkspaceRuntimeSummary = {
@@ -208,7 +221,10 @@ export type WorkspaceRuntimeSummary = {
   traffic_capture_flow_count: number | null;
   traffic_capture_suspicious_count: number | null;
   live_traffic_status: string | null;
+  live_traffic_session_id?: string | null;
   live_traffic_artifact_path: string | null;
+  live_traffic_output_path?: string | null;
+  live_traffic_preview_path?: string | null;
   live_traffic_message: string | null;
 };
 
@@ -232,15 +248,26 @@ export type HookPlanResponse = {
 };
 
 export type TrafficFlowSummary = {
+  schema_version?: string;
+  capture_id?: string;
   flow_id: string;
+  timestamp?: string | null;
   method: string;
   url: string;
+  scheme?: string;
+  host?: string;
+  path?: string;
   status_code: number | null;
   mime_type: string | null;
+  request_headers?: Array<{ name: string; value: string }>;
+  response_headers?: Array<{ name: string; value: string }>;
   request_preview: string;
   response_preview: string;
+  request_body_size?: number | null;
+  response_body_size?: number | null;
   matched_indicators: string[];
   suspicious: boolean;
+  raw_payload?: Record<string, unknown>;
 };
 
 export type TrafficCaptureProvenance = {
@@ -264,6 +291,7 @@ export type TrafficCaptureSummary = {
 
 export type TrafficCaptureResponse = {
   case_id: string;
+  flow_schema?: string;
   source_path: string;
   provenance: TrafficCaptureProvenance;
   flow_count: number;
@@ -279,18 +307,17 @@ export type TrafficCaptureResponse = {
 export type LiveTrafficCaptureResponse = {
   case_id: string;
   status: string;
+  session_id?: string | null;
   artifact_path: string | null;
+  output_path?: string | null;
+  preview_path?: string | null;
   message: string | null;
 };
 
-export type LiveTrafficPreviewItem = {
-  flow_id: string;
+export type LiveTrafficPreviewItem = TrafficFlowSummary & {
+  schema_version: string;
+  capture_id: string;
   timestamp: string | null;
-  method: string;
-  url: string;
-  status_code: number | null;
-  matched_indicators: string[];
-  suspicious: boolean;
 };
 
 export type LiveTrafficPreviewResponse = {
@@ -515,6 +542,8 @@ export type WorkspaceEvent = {
   case_id?: string;
   status?: string;
   artifact_path?: string | null;
+  output_path?: string | null;
+  preview_path?: string | null;
   stage?: string;
   run_id?: string;
   execution_mode?: string;
@@ -526,6 +555,18 @@ export type WorkspaceEvent = {
   error_code?: string | null;
   message?: string;
   timestamp?: string;
+  schema_version?: string | null;
+  job_id?: string | null;
+  session_id?: string | null;
+  event_type?: string | null;
+  hook_type?: string | null;
+  source?: string | null;
+  source_script?: string | null;
+  class_name?: string | null;
+  method_name?: string | null;
+  arguments?: string[];
+  return_value?: string | null;
+  stacktrace?: string | null;
   payload?: Record<string, unknown>;
 };
 

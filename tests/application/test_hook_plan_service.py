@@ -128,3 +128,31 @@ def test_hook_plan_service_builds_template_hook_items() -> None:
         "rendered_script": str(result.items[0].render_context["rendered_script"]),
     }
     assert "OkHttp3 SSL unpinning hooks installed" in str(result.items[0].render_context["rendered_script"])
+
+
+def test_hook_plan_service_preserves_template_explanation_metadata() -> None:
+    result = HookPlanService().plan_for_sources(
+        [
+            HookPlanSource.from_template(
+                template_id="crypto.cipher_monitor",
+                template_name="Cipher Monitor",
+                plugin_id="builtin.crypto-cipher-monitor",
+                reason="Crypto signals were detected.",
+                matched_terms=("crypto", "cipher"),
+                source_signals=("crypto_signals",),
+                template_event_types=("crypto_call", "crypto_return"),
+                template_category="crypto",
+            )
+        ]
+    )
+
+    item = result.items[0]
+
+    assert item.reason == "Crypto signals were detected."
+    assert item.matched_terms == ("crypto", "cipher")
+    assert item.source_signals == ("crypto_signals",)
+    assert item.template_event_types == ("crypto_call", "crypto_return")
+    assert item.template_category == "crypto"
+    assert item.tags == ("crypto", "cipher")
+    assert item.render_context["source_reason"] == "Crypto signals were detected."
+    assert item.render_context["source_signals"] == ["crypto_signals"]

@@ -15,6 +15,7 @@ from apk_hacker.application.services.workspace_runtime_service import WorkspaceR
 from apk_hacker.application.services.workspace_registry_service import WorkspaceRegistryService
 from apk_hacker.domain.models.hook_advice import HookRecommendation
 from apk_hacker.domain.models.indexes import MethodIndexEntry
+from apk_hacker.interfaces.api_fastapi.event_presenter import dynamic_event_response
 from apk_hacker.interfaces.api_fastapi.routes_cases import _known_workspace_roots
 from apk_hacker.interfaces.api_fastapi.schemas import CustomScriptCreateRequest
 from apk_hacker.interfaces.api_fastapi.schemas import CustomScriptContentResponse
@@ -36,7 +37,6 @@ from apk_hacker.interfaces.api_fastapi.schemas import WorkspaceDetailResponse
 from apk_hacker.interfaces.api_fastapi.schemas import WorkspaceMethodsResponse
 from apk_hacker.interfaces.api_fastapi.schemas import WorkspaceMethodSummary
 from apk_hacker.interfaces.api_fastapi.schemas import WorkspaceRecommendationsResponse
-from apk_hacker.interfaces.api_fastapi.schemas import WorkspaceEventResponse
 from apk_hacker.interfaces.api_fastapi.schemas import WorkspaceEventsResponse
 from apk_hacker.interfaces.api_fastapi.schemas import WorkspaceRuntimeSummary
 from apk_hacker.interfaces.api_fastapi.schemas import WorkspaceSummary
@@ -116,6 +116,11 @@ def build_workspace_router(
             template_id=entry.template_id,
             template_name=entry.template_name,
             plugin_id=entry.plugin_id,
+            source_signals=list(entry.source_signals),
+            template_event_types=list(entry.template_event_types),
+            template_category=entry.template_category,
+            requires_root=entry.requires_root,
+            supports_offline=entry.supports_offline,
         )
 
     def _to_hook_plan_source_summary(source) -> HookPlanSourceSummary:
@@ -128,6 +133,13 @@ def build_workspace_router(
             template_id=source.template_id,
             template_name=source.template_name,
             plugin_id=source.plugin_id,
+            reason=source.reason,
+            matched_terms=list(source.matched_terms),
+            source_signals=list(source.source_signals),
+            template_event_types=list(source.template_event_types),
+            template_category=source.template_category,
+            requires_root=source.requires_root,
+            supports_offline=source.supports_offline,
         )
 
     def _to_hook_plan_target_summary(target) -> HookPlanTargetSummary:
@@ -139,27 +151,6 @@ def build_workspace_router(
             return_type=target.return_type,
             source_origin=target.source_origin,
             notes=target.notes,
-        )
-
-    def _to_workspace_event(case_id: str, event) -> WorkspaceEventResponse:
-        message_parts = [f"{event.class_name}.{event.method_name}"]
-        if event.return_value:
-            message_parts.append(event.return_value)
-        return WorkspaceEventResponse(
-            type="execution.event",
-            case_id=case_id,
-            timestamp=event.timestamp,
-            message=" · ".join(message_parts),
-            payload={
-                "event_type": event.event_type,
-                "source": event.source,
-                "class_name": event.class_name,
-                "method_name": event.method_name,
-                "arguments": list(event.arguments),
-                "return_value": event.return_value,
-                "stacktrace": event.stacktrace,
-                "raw_payload": dict(event.raw_payload),
-            },
         )
 
     def _to_runtime_summary(case_id: str) -> WorkspaceRuntimeSummary:
@@ -187,8 +178,15 @@ def build_workspace_router(
             traffic_capture_flow_count=state.traffic_capture_flow_count,
             traffic_capture_suspicious_count=state.traffic_capture_suspicious_count,
             live_traffic_status=state.live_traffic_capture.status,
+            live_traffic_session_id=state.live_traffic_capture.session_id,
             live_traffic_artifact_path=(
                 str(state.live_traffic_capture.output_path) if state.live_traffic_capture.output_path else None
+            ),
+            live_traffic_output_path=(
+                str(state.live_traffic_capture.output_path) if state.live_traffic_capture.output_path else None
+            ),
+            live_traffic_preview_path=(
+                str(state.live_traffic_capture.preview_path) if state.live_traffic_capture.preview_path else None
             ),
             live_traffic_message=state.live_traffic_capture.message,
         )
@@ -203,6 +201,14 @@ def build_workspace_router(
             target=_to_hook_plan_target_summary(item.target) if item.target is not None else None,
             render_context=dict(item.render_context),
             plugin_id=item.plugin_id,
+            template_id=item.template_id,
+            reason=item.reason,
+            matched_terms=list(item.matched_terms),
+            source_signals=list(item.source_signals),
+            template_event_types=list(item.template_event_types),
+            template_category=item.template_category,
+            requires_root=item.requires_root,
+            supports_offline=item.supports_offline,
         )
 
     def _to_hook_plan_response(case_id: str):
@@ -307,13 +313,13 @@ def build_workspace_router(
     @router.get("/{case_id}/workspace/events", response_model=WorkspaceEventsResponse)
     def get_workspace_events(case_id: str, limit: int = 20) -> WorkspaceEventsResponse:
         try:
-            events = runtime_service.get_execution_events(case_id, limit=limit)
+            events = runtime_service.get_execution_dynamic_events(case_id, limit=limit)
         except CaseNotFoundError as exc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found") from exc
 
         return WorkspaceEventsResponse(
             case_id=case_id,
-            items=[_to_workspace_event(case_id, event) for event in events],
+            items=[dynamic_event_response(case_id, event) for event in events],
         )
 
     @router.get("/{case_id}/workspace/recommendations", response_model=WorkspaceRecommendationsResponse)

@@ -200,7 +200,10 @@ def test_live_traffic_status_reports_unavailable_when_command_is_not_configured(
     assert response.json() == {
         "case_id": case_id,
         "status": "unavailable",
+        "session_id": None,
         "artifact_path": None,
+        "output_path": None,
+        "preview_path": None,
         "message": "未配置实时抓包命令，请设置 APKHACKER_TRAFFIC_CAPTURE_COMMAND。",
     }
 
@@ -278,6 +281,11 @@ def test_live_traffic_start_and_stop_imports_capture_and_persists_runtime(
         "kind": "live_capture",
         "label": "实时抓包自动导入",
     }
+    assert capture_payload["flow_schema"] == "traffic-flow.v1"
+    assert capture_payload["flows"][0]["schema_version"] == "traffic-flow.v1"
+    assert capture_payload["flows"][0]["capture_id"].startswith("capture-")
+    assert capture_payload["flows"][0]["host"] == "demo-c2.example"
+    assert capture_payload["flows"][0]["path"] == "/api/upload"
 
 
 def test_live_traffic_stop_returns_clear_message_when_output_is_missing(

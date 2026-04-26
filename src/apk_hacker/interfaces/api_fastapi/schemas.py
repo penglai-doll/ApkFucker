@@ -154,6 +154,13 @@ class HookPlanSourceSummary(BaseModel):
     template_id: str | None = None
     template_name: str | None = None
     plugin_id: str | None = None
+    reason: str | None = None
+    matched_terms: list[str] = Field(default_factory=list)
+    source_signals: list[str] = Field(default_factory=list)
+    template_event_types: list[str] = Field(default_factory=list)
+    template_category: str | None = None
+    requires_root: bool = False
+    supports_offline: bool = True
 
 
 class HookPlanItemResponse(BaseModel):
@@ -167,6 +174,14 @@ class HookPlanItemResponse(BaseModel):
     target: HookPlanTargetSummary | None = None
     render_context: dict[str, object] = Field(default_factory=dict)
     plugin_id: str | None = None
+    template_id: str | None = None
+    reason: str | None = None
+    matched_terms: list[str] = Field(default_factory=list)
+    source_signals: list[str] = Field(default_factory=list)
+    template_event_types: list[str] = Field(default_factory=list)
+    template_category: str | None = None
+    requires_root: bool = False
+    supports_offline: bool = True
 
 
 class WorkspaceRuntimeSummary(BaseModel):
@@ -190,7 +205,10 @@ class WorkspaceRuntimeSummary(BaseModel):
     traffic_capture_flow_count: int | None = None
     traffic_capture_suspicious_count: int | None = None
     live_traffic_status: str | None = None
+    live_traffic_session_id: str | None = None
     live_traffic_artifact_path: str | None = None
+    live_traffic_output_path: str | None = None
+    live_traffic_preview_path: str | None = None
     live_traffic_message: str | None = None
 
 
@@ -234,6 +252,18 @@ class WorkspaceEventResponse(BaseModel):
     error_code: str | None = None
     message: str | None = None
     timestamp: str | None = None
+    schema_version: str | None = None
+    job_id: str | None = None
+    session_id: str | None = None
+    event_type: str | None = None
+    hook_type: str | None = None
+    source: str | None = None
+    source_script: str | None = None
+    class_name: str | None = None
+    method_name: str | None = None
+    arguments: list[str] = Field(default_factory=list)
+    return_value: str | None = None
+    stacktrace: str | None = None
     payload: dict[str, object] = Field(default_factory=dict)
 
 
@@ -370,6 +400,11 @@ class HookRecommendationSummary(BaseModel):
     template_id: str | None = None
     template_name: str | None = None
     plugin_id: str | None = None
+    source_signals: list[str] = Field(default_factory=list)
+    template_event_types: list[str] = Field(default_factory=list)
+    template_category: str | None = None
+    requires_root: bool = False
+    supports_offline: bool = True
 
 
 class WorkspaceRecommendationsResponse(BaseModel):
@@ -384,18 +419,36 @@ class TrafficImportRequest(BaseModel):
     har_path: str
 
 
+class TrafficHeaderResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    value: str
+
+
 class TrafficFlowSummaryResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    schema_version: str = "traffic-flow.v1"
+    capture_id: str
     flow_id: str
+    timestamp: str | None = None
     method: str
     url: str
+    scheme: str = ""
+    host: str = ""
+    path: str = ""
     status_code: int | None = None
     mime_type: str | None = None
+    request_headers: list[TrafficHeaderResponse] = Field(default_factory=list)
+    response_headers: list[TrafficHeaderResponse] = Field(default_factory=list)
     request_preview: str
     response_preview: str
+    request_body_size: int | None = None
+    response_body_size: int | None = None
     matched_indicators: list[str] = Field(default_factory=list)
     suspicious: bool
+    raw_payload: dict[str, object] = Field(default_factory=dict)
 
 
 class TrafficCaptureProvenanceResponse(BaseModel):
@@ -427,6 +480,7 @@ class TrafficCaptureResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     case_id: str
+    flow_schema: str = "traffic-flow.v1"
     source_path: str
     provenance: TrafficCaptureProvenanceResponse
     flow_count: int
@@ -451,19 +505,21 @@ class LiveTrafficCaptureResponse(BaseModel):
 
     case_id: str
     status: str
+    session_id: str | None = None
     artifact_path: str | None = None
+    output_path: str | None = None
+    preview_path: str | None = None
     message: str | None = None
 
 
-class TrafficLiveCaptureResponse(BaseModel):
+class LiveTrafficPreviewResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     case_id: str
     status: str
-    session_id: str | None = None
-    output_path: str | None = None
-    message: str | None = None
-    capture: TrafficCaptureResponse | None = None
+    preview_path: str | None = None
+    truncated: bool = False
+    items: list[TrafficFlowSummaryResponse] = Field(default_factory=list)
 
 
 class OpenJadxResponse(BaseModel):

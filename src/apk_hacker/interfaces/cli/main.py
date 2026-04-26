@@ -44,21 +44,6 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(list(argv) if argv is not None else None)
 
 
-def _serialize_event(event: Any) -> dict[str, Any]:
-    return {
-        "timestamp": event.timestamp,
-        "job_id": event.job_id,
-        "event_type": event.event_type,
-        "source": event.source,
-        "class_name": event.class_name,
-        "method_name": event.method_name,
-        "arguments": list(event.arguments),
-        "return_value": event.return_value,
-        "stacktrace": event.stacktrace,
-        "raw_payload": event.raw_payload,
-    }
-
-
 def _serialize_selected_targets(state: WorkbenchState) -> list[dict[str, Any]]:
     selected: list[dict[str, Any]] = []
     for item in state.hook_plan.items:
@@ -145,7 +130,7 @@ def execute_cli(args: argparse.Namespace, controller: WorkbenchController | None
         "selected_targets": _serialize_selected_targets(state),
         "execution_mode": state.execution_mode,
         "event_count": len(state.hook_events),
-        "events": [_serialize_event(event) for event in state.hook_events],
+        "events": [event.to_payload() for event in state.hook_events],
         "last_execution_db_path": (
             str(state.last_execution_db_path) if state.last_execution_db_path is not None else None
         ),

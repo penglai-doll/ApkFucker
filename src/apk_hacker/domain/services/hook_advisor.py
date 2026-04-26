@@ -96,6 +96,7 @@ class _SignalGroup:
     label: str
     terms: tuple[str, ...]
     weight: int
+    source_signal: str
 
 
 class OfflineHookAdvisor:
@@ -128,12 +129,12 @@ class OfflineHookAdvisor:
         callback_terms = self._terms_from_values(static_inputs.callback_endpoints + static_inputs.callback_clues) + CALLBACK_HINTS
         callback_terms = _unique_terms(callback_terms)
         if callback_terms:
-            groups.append(_SignalGroup("Callback / network clues", callback_terms, 4))
+            groups.append(_SignalGroup("Callback / network clues", callback_terms, 4, "callback_endpoints"))
 
         crypto_terms = self._terms_from_values(static_inputs.crypto_signals) + CRYPTO_HINTS
         crypto_terms = _unique_terms(crypto_terms)
         if crypto_terms:
-            groups.append(_SignalGroup("Crypto signals", crypto_terms, 5))
+            groups.append(_SignalGroup("Crypto signals", crypto_terms, 5, "crypto_signals"))
 
         permission_terms: list[str] = []
         for permission in static_inputs.dangerous_permissions:
@@ -144,7 +145,7 @@ class OfflineHookAdvisor:
                     permission_terms.extend(hints)
         permission_terms = list(_unique_terms(tuple(permission_terms)))
         if permission_terms:
-            groups.append(_SignalGroup("Sensitive permission signals", tuple(permission_terms), 4))
+            groups.append(_SignalGroup("Sensitive permission signals", tuple(permission_terms), 4, "dangerous_permissions"))
 
         tag_terms: list[str] = []
         for tag in static_inputs.technical_tags:
@@ -155,7 +156,7 @@ class OfflineHookAdvisor:
                     tag_terms.extend(hints)
         tag_terms = list(_unique_terms(tuple(tag_terms)))
         if tag_terms:
-            groups.append(_SignalGroup("Technical profile hints", tuple(tag_terms), 2))
+            groups.append(_SignalGroup("Technical profile hints", tuple(tag_terms), 2, "technical_tags"))
 
         return tuple(groups)
 
@@ -173,6 +174,7 @@ class OfflineHookAdvisor:
 
         score = 0
         matched_terms: list[str] = []
+        source_signals: list[str] = []
         reason_parts: list[str] = []
 
         for group in signal_groups:
@@ -181,6 +183,7 @@ class OfflineHookAdvisor:
                 continue
             score += group.weight + min(len(matches), 3) - 1
             matched_terms.extend(matches[:3])
+            source_signals.append(group.source_signal)
             reason_parts.append(f"{group.label}: {', '.join(matches[:3])}")
 
         if score <= 0:
@@ -194,5 +197,6 @@ class OfflineHookAdvisor:
             reason="; ".join(reason_parts),
             score=score,
             matched_terms=_unique_terms(tuple(matched_terms)),
+            source_signals=_unique_terms(tuple(source_signals)),
             method=method,
         )

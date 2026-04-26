@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
+from datetime import datetime, timezone
+import json
 from pathlib import Path
 from threading import Event
 from typing import Protocol
@@ -16,6 +18,8 @@ from apk_hacker.application.services.workspace_inspection_service import Workspa
 from apk_hacker.application.services.workspace_runtime_state import ExecutionHistoryEntry
 from apk_hacker.application.services.workspace_runtime_state import normalize_path
 from apk_hacker.application.services.workspace_runtime_state import WorkspaceRuntimeState
+from apk_hacker.domain.models.artifact import ArtifactManifest
+from apk_hacker.domain.models.artifact import ArtifactRef
 from apk_hacker.domain.models.execution import ExecutionRequest
 from apk_hacker.domain.models.execution import ExecutionRuntimeOptions
 from apk_hacker.domain.models.hook_event import HookEvent
@@ -36,6 +40,58 @@ class ExecutionBackendBuilder(Protocol):
         extra_env: Mapping[str, str] | None = None,
         real_device_command: str | None = None,
     ) -> ExecutionBackend: ...
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _write_execution_artifact_manifest(
+    *,
+    case_id: str,
+    sample_path: Path,
+    bundle_path: Path,
+    db_path: Path,
+    event_count: int,
+    execution_mode: str,
+    executed_backend_key: str,
+) -> Path:
+    created_at = _now_iso()
+    manifest = ArtifactManifest(
+        schema_version="artifact-manifest.v1",
+        case_id=case_id,
+        sample_path=str(sample_path.resolve()),
+        artifacts=(
+            ArtifactRef(
+                artifact_id="dynamic-execution-bundle",
+                kind="dynamic.execution_bundle",
+                path=str(bundle_path.resolve()),
+                producer="workspace_execution_service",
+                created_at=created_at,
+                metadata={
+                    "execution_mode": execution_mode,
+                    "executed_backend_key": executed_backend_key,
+                },
+            ),
+            ArtifactRef(
+                artifact_id="dynamic-hook-events-sqlite",
+                kind="dynamic.hook_events_sqlite",
+                path=str(db_path.resolve()),
+                producer="hook_log_store",
+                created_at=created_at,
+                metadata={
+                    "event_count": event_count,
+                    "schema": "dynamic-event.v1",
+                },
+            ),
+        ),
+    )
+    manifest_path = bundle_path / "artifact-manifest.json"
+    manifest_path.write_text(
+        json.dumps(manifest.to_payload(), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return manifest_path
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,6 +199,15 @@ class WorkspaceExecutionService:
         persisted_events = tuple(event for event in events if event.event_type != "execution_bundle")
         for event in persisted_events:
             store.insert(replace(event, job_id=record.bundle.job.job_id))
+        _write_execution_artifact_manifest(
+            case_id=record.case_id,
+            sample_path=record.sample_path,
+            bundle_path=bundle_path,
+            db_path=db_path,
+            event_count=len(persisted_events),
+            execution_mode=resolved_mode,
+            executed_backend_key=resolved_backend_key,
+        )
 
         updated_state = self._mark_execution_completed(
             state,

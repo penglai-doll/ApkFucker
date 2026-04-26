@@ -38,6 +38,7 @@ from apk_hacker.application.services.workspace_traffic_service import WorkspaceT
 from apk_hacker.application.services.workspace_runtime_state import ExecutionHistoryEntry
 from apk_hacker.application.services.workspace_runtime_state import WorkspaceRuntimeState
 from apk_hacker.domain.models.execution import ExecutionRuntimeOptions
+from apk_hacker.domain.models.dynamic_event import DynamicEvent
 from apk_hacker.domain.models.hook_event import HookEvent
 from apk_hacker.domain.models.hook_plan import HookPlanSource
 from apk_hacker.domain.models.traffic import TrafficCapture
@@ -305,11 +306,27 @@ class WorkspaceRuntimeService:
                 template_id=recommendation.template_id,
                 template_name=recommendation.template_name,
                 plugin_id=recommendation.plugin_id,
+                reason=recommendation.reason,
+                matched_terms=recommendation.matched_terms,
+                source_signals=recommendation.source_signals,
+                template_event_types=recommendation.template_event_types,
+                template_category=recommendation.template_category,
+                requires_root=recommendation.requires_root,
+                supports_offline=recommendation.supports_offline,
             )
             return self._mutate_selected_sources(record.case_id, source)
         if recommendation.method is None:
             raise ValueError("Recommendation does not reference a method.")
-        return self._mutate_selected_sources(record.case_id, HookPlanSource.from_method(recommendation.method))
+        return self._mutate_selected_sources(
+            record.case_id,
+            HookPlanSource.from_method(
+                recommendation.method,
+                source_kind="offline_recommendation",
+                reason=recommendation.reason,
+                matched_terms=recommendation.matched_terms,
+                source_signals=recommendation.source_signals,
+            ),
+        )
 
     def add_custom_script_to_plan(self, case_id: str, script_id: str) -> WorkspaceRuntimeState:
         record = self._inspection_service.get_detail(case_id)
@@ -387,6 +404,26 @@ class WorkspaceRuntimeService:
             return ()
         bounded_limit = max(1, min(limit, 200))
         return tuple(HookLogStore(db_path).list_tail_for_job(record.bundle.job.job_id, bounded_limit))
+
+    def get_execution_dynamic_events(
+        self,
+        case_id: str,
+        limit: int = 20,
+        *,
+        history_id: str | None = None,
+    ) -> tuple[DynamicEvent, ...]:
+        record = self._inspection_service.get_detail(case_id)
+        state = self.get_state(case_id)
+        db_path = state.last_execution_db_path
+        if history_id is not None:
+            matched = next((entry for entry in state.execution_history if entry.history_id == history_id), None)
+            if matched is None:
+                raise KeyError(history_id)
+            db_path = matched.db_path
+        if db_path is None or not db_path.exists():
+            return ()
+        bounded_limit = max(1, min(limit, 200))
+        return tuple(HookLogStore(db_path).list_dynamic_tail_for_job(record.bundle.job.job_id, bounded_limit))
 
     def mark_execution_started(
         self,
